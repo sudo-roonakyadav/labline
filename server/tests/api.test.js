@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import request from 'supertest';
 import mongoose from 'mongoose';
 import { createApp } from '../src/app.js';
+import { config } from '../src/config/env.js';
 import { User } from '../src/models/User.js';
 import { HelpRequest } from '../src/models/HelpRequest.js';
 import { COOKIE_NAME } from '../src/utils/token.js';
@@ -40,9 +41,9 @@ describe('LabLine Full-Stack API Test Suite', () => {
   });
 
   // -------------------------------------------------------------------------
-  // HEALTH CHECK
+  // HEALTH & READINESS PROBES
   // -------------------------------------------------------------------------
-  describe('GET /api/health', () => {
+  describe('GET /api/health (Diagnostic Probe)', () => {
     test('returns operational health status and database connectivity', async () => {
       const res = await request(app).get('/api/health');
       assert.equal(res.status, 200);
@@ -50,6 +51,65 @@ describe('LabLine Full-Stack API Test Suite', () => {
       assert.equal(res.body.database.connected, true);
       assert.equal(res.body.database.status, 'connected');
       assert.equal(res.body.realtime.status, 'operational');
+    });
+  });
+
+  describe('GET /api/health/ready (Readiness Probe)', () => {
+    test('returns 200 when database connection is ready', async () => {
+      const res = await request(app).get('/api/health/ready');
+      assert.equal(res.status, 200);
+      assert.equal(res.body.status, 'ready');
+      assert.equal(res.body.database, 'connected');
+      assert(res.body.timestamp);
+    });
+
+    test('returns 503 unavailable when database is disconnected', async () => {
+      // Temporarily disconnect to verify unready state
+      await mongoose.disconnect();
+
+      const res = await request(app).get('/api/health/ready');
+      assert.equal(res.status, 503);
+      assert.equal(res.body.status, 'unavailable');
+      assert.equal(res.body.database, 'disconnected');
+      assert.equal(res.body.error, 'Database connection is not ready.');
+
+      // Reconnect for subsequent tests
+      await mongoose.connect(TEST_DB_URI);
+      const reconnectedRes = await request(app).get('/api/health/ready');
+      assert.equal(reconnectedRes.status, 200);
+    });
+  });
+
+  describe('Production Static Serving & Routing Behavior', () => {
+    test('unknown API routes always return JSON 404, never HTML', async () => {
+      const resGet = await request(app).get('/api/nonexistent-route');
+      assert.equal(resGet.status, 404);
+      assert(resGet.headers['content-type'].includes('application/json'));
+      assert.equal(resGet.body.error, 'Not Found');
+
+      const resPost = await request(app).post('/api/nonexistent-route');
+      assert.equal(resPost.status, 404);
+      assert(resPost.headers['content-type'].includes('application/json'));
+      assert.equal(resPost.body.error, 'Not Found');
+    });
+
+    test('in production mode, non-API GET requests serve SPA index.html', async () => {
+      const prevEnv = config.nodeEnv;
+      config.nodeEnv = 'production';
+      const prodApp = createApp('http://localhost:5173');
+
+      const res = await request(prodApp).get('/some/client/route');
+      assert.equal(res.status, 200);
+      assert(res.headers['content-type'].includes('text/html'));
+      assert(res.text.includes('<!DOCTYPE html>') || res.text.includes('<div id="root">'));
+
+      // Ensure /api unknown still returns JSON 404 in production mode
+      const apiRes = await request(prodApp).get('/api/missing-route');
+      assert.equal(apiRes.status, 404);
+      assert(apiRes.headers['content-type'].includes('application/json'));
+      assert.equal(apiRes.body.error, 'Not Found');
+
+      config.nodeEnv = prevEnv;
     });
   });
 

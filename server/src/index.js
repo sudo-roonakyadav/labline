@@ -18,9 +18,10 @@ connectDB(config.mongodbUri).catch((err) => {
   console.error('[Database Fatal Error]', err);
 });
 
-httpServer.listen(config.port, () => {
-  console.log(`[LabLine Server] Operational on http://localhost:${config.port}`);
-  console.log(`[LabLine Server] Health check available at http://localhost:${config.port}/api/health`);
+httpServer.listen(config.port, config.host, () => {
+  console.log(`[LabLine Server] Operational on http://${config.host}:${config.port} (${config.nodeEnv})`);
+  console.log(`[LabLine Server] Diagnostic health check: GET http://${config.host}:${config.port}/api/health`);
+  console.log(`[LabLine Server] Readiness health check:  GET http://${config.host}:${config.port}/api/health/ready`);
 });
 
 // Graceful termination handling

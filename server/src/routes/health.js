@@ -3,6 +3,7 @@ import { getDbStatus } from '../config/db.js';
 
 export const healthRouter = Router();
 
+// GET /api/health - Comprehensive diagnostic health endpoint (always returns 200 with honest subsystem state)
 healthRouter.get('/health', (req, res) => {
   const db = getDbStatus();
 
@@ -21,5 +22,25 @@ healthRouter.get('/health', (req, res) => {
       status: 'operational',
       engine: 'socket.io',
     },
+  });
+});
+
+// GET /api/health/ready - Production readiness probe (returns 200 only when DB is connected, otherwise 503)
+healthRouter.get('/health/ready', (req, res) => {
+  const db = getDbStatus();
+
+  if (db.connected) {
+    return res.status(200).json({
+      status: 'ready',
+      database: 'connected',
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  return res.status(503).json({
+    status: 'unavailable',
+    database: db.status,
+    timestamp: new Date().toISOString(),
+    error: 'Database connection is not ready.',
   });
 });

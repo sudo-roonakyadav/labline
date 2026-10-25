@@ -109,10 +109,12 @@ authRouter.post('/login', async (req, res, next) => {
 
 // POST /api/auth/logout - Terminate session cookie
 authRouter.post('/logout', (req, res) => {
+  const options = getCookieOptions();
   res.clearCookie(COOKIE_NAME, {
-    httpOnly: true,
-    path: '/',
-    sameSite: 'lax',
+    httpOnly: options.httpOnly,
+    secure: options.secure,
+    sameSite: options.sameSite,
+    path: options.path,
   });
 
   res.status(200).json({
