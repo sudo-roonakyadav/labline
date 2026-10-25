@@ -189,11 +189,24 @@ describe('LabLine Full-Stack API Test Suite', () => {
       assert.equal(meRes.status, 200);
       assert.equal(meRes.body.user.email, 'student1@scaler.com');
       assert.equal(meRes.body.user.role, 'student');
+      assert(meRes.headers['cache-control'].includes('no-store'));
+
+      // Conditional request regression test: ensure 304 is NEVER returned for session endpoint
+      const conditionalRes = await request(app)
+        .get('/api/auth/me')
+        .set('Cookie', cookies)
+        .set('If-None-Match', meRes.headers['etag'] || 'W/"arbitrary-etag"')
+        .set('If-Modified-Since', new Date().toUTCString());
+
+      assert.equal(conditionalRes.status, 200, 'Must return 200 rather than 304 for session retrieval');
+      assert.equal(conditionalRes.body.user.email, 'student1@scaler.com');
+      assert(conditionalRes.headers['cache-control'].includes('no-store'));
     });
 
     test('rejects /api/auth/me without authentication cookie (401)', async () => {
       const res = await request(app).get('/api/auth/me');
       assert.equal(res.status, 401);
+      assert(res.headers['cache-control'].includes('no-store'));
     });
 
     test('clears session on POST /api/auth/logout', async () => {

@@ -1,7 +1,9 @@
 import { User } from '../models/User.js';
 import { verifyToken, COOKIE_NAME } from '../utils/token.js';
+import { noCache } from './cache.js';
 
 export async function requireAuth(req, res, next) {
+  noCache(req, res, () => {});
   try {
     let token = req.cookies?.[COOKIE_NAME];
 

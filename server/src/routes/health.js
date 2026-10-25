@@ -1,7 +1,11 @@
 import { Router } from 'express';
 import { getDbStatus } from '../config/db.js';
+import { noCache } from '../middleware/cache.js';
 
 export const healthRouter = Router();
+
+// Ensure health checks are dynamic and never cached
+healthRouter.use(noCache);
 
 // GET /api/health - Comprehensive diagnostic health endpoint (always returns 200 with honest subsystem state)
 healthRouter.get('/health', (req, res) => {

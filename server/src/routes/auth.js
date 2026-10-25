@@ -3,8 +3,12 @@ import bcrypt from 'bcryptjs';
 import { User } from '../models/User.js';
 import { generateToken, getCookieOptions, COOKIE_NAME } from '../utils/token.js';
 import { requireAuth } from '../middleware/auth.js';
+import { noCache } from '../middleware/cache.js';
 
 export const authRouter = Router();
+
+// Ensure authentication responses are never cached by browsers or intermediate proxies
+authRouter.use(noCache);
 
 // POST /api/auth/register - Public student registration
 authRouter.post('/register', async (req, res, next) => {

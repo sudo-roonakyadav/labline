@@ -42,6 +42,25 @@ export default function App() {
   const [telemetryLogs, setTelemetryLogs] = useState([]);
   const socketRef = useRef(null);
 
+  // Stability refs to prevent stale closures and infinite lifecycle loops
+  const currentUserRef = useRef(currentUser);
+  useEffect(() => {
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
+
+  const isMountedRef = useRef(true);
+  const refreshTimerRef = useRef(null);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current);
+      }
+    };
+  }, []);
+
   const addLog = useCallback((source, message, level = 'info') => {
     const timestamp = new Date().toISOString().substring(11, 23);
     const id = `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
@@ -56,8 +75,10 @@ export default function App() {
     setHealthLoading(true);
     const startTime = performance.now();
     try {
-      const res = await fetch('/api/health');
+      const res = await fetch('/api/health', { cache: 'no-store' });
       const latency = Math.round(performance.now() - startTime);
+      if (!isMountedRef.current) return;
+
       setHealthLatency(latency);
       setLastChecked(new Date().toLocaleTimeString());
 
@@ -66,75 +87,146 @@ export default function App() {
       }
 
       const json = await res.json();
+      if (!isMountedRef.current) return;
+
       setHealthData(json);
       setHealthError(null);
       addLog('HTTP', `GET /api/health -> ${res.status} OK (${latency}ms)`, 'success');
     } catch (err) {
+      if (!isMountedRef.current) return;
       setHealthError(err.message);
       setHealthData(null);
       addLog('HTTP', `GET /api/health failed: ${err.message}`, 'error');
     } finally {
-      setHealthLoading(false);
+      if (isMountedRef.current) {
+        setHealthLoading(false);
+      }
     }
   }, [addLog]);
 
   const checkSession = useCallback(async () => {
     setAuthLoading(true);
     try {
-      const res = await fetch('/api/auth/me');
+      const res = await fetch('/api/auth/me', {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      if (!isMountedRef.current) return;
+
       if (res.ok) {
         const data = await res.json();
+        if (!isMountedRef.current) return;
         setCurrentUser(data.user);
         addLog('AUTH', `Active session restored for ${data.user.email} (${data.user.role})`, 'success');
       } else {
         setCurrentUser(null);
       }
     } catch (err) {
-      setCurrentUser(null);
+      if (isMountedRef.current) {
+        setCurrentUser(null);
+      }
     } finally {
-      setAuthLoading(false);
+      if (isMountedRef.current) {
+        setAuthLoading(false);
+      }
     }
   }, [addLog]);
 
   const fetchMyRequests = useCallback(async () => {
     setMyRequestsLoading(true);
     try {
-      const res = await fetch('/api/requests/mine');
+      const res = await fetch('/api/requests/mine', {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      if (!isMountedRef.current) return;
+
       if (res.ok) {
         const data = await res.json();
+        if (!isMountedRef.current) return;
         setMyRequests(data.requests || []);
+        setRequestError(null);
+      } else if (res.status === 401) {
+        setCurrentUser(null);
+        setMyRequests([]);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || `HTTP ${res.status}`);
       }
     } catch (err) {
-      addLog('API', `Failed to load student requests: ${err.message}`, 'error');
+      if (isMountedRef.current) {
+        setRequestError(err.message);
+        addLog('API', `Failed to load student requests: ${err.message}`, 'error');
+      }
     } finally {
-      setMyRequestsLoading(false);
+      if (isMountedRef.current) {
+        setMyRequestsLoading(false);
+      }
     }
   }, [addLog]);
 
   const fetchQueue = useCallback(async () => {
     setMentorQueueLoading(true);
     try {
-      const res = await fetch('/api/queue');
+      const res = await fetch('/api/queue', {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      if (!isMountedRef.current) return;
+
       if (res.ok) {
         const data = await res.json();
+        if (!isMountedRef.current) return;
         setMentorQueue(data.queue || []);
+        setQueueActionError(null);
+      } else if (res.status === 401) {
+        setCurrentUser(null);
+        setMentorQueue([]);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || `HTTP ${res.status}`);
       }
     } catch (err) {
-      addLog('API', `Failed to load mentor queue: ${err.message}`, 'error');
+      if (isMountedRef.current) {
+        setQueueActionError(err.message);
+        addLog('API', `Failed to load mentor queue: ${err.message}`, 'error');
+      }
     } finally {
-      setMentorQueueLoading(false);
+      if (isMountedRef.current) {
+        setMentorQueueLoading(false);
+      }
     }
   }, [addLog]);
+
+  // Bounded coalesced refresh to avoid hammering endpoints on high-frequency socket broadcasts
+  const triggerBoundedRefresh = useCallback(() => {
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+    }
+    refreshTimerRef.current = setTimeout(() => {
+      if (!isMountedRef.current) return;
+      const user = currentUserRef.current;
+      if (user?.role === 'student') {
+        fetchMyRequests();
+      } else if (user?.role === 'mentor') {
+        fetchQueue();
+      }
+    }, 200);
+  }, [fetchMyRequests, fetchQueue]);
 
   // -------------------------------------------------------------------------
   // LIFECYCLE & SOCKET SETUP
   // -------------------------------------------------------------------------
 
+  // 1. Initial application/session bootstrap - executed ONCE on mount
   useEffect(() => {
-    addLog('SYSTEM', 'Initializing LabLine console');
+    addLog('SYSTEM', 'Initializing LabLine application');
     fetchHealth();
     checkSession();
+  }, [addLog, fetchHealth, checkSession]);
 
+  // 2. Persistent Socket.IO connection - initialized ONCE for application lifetime
+  useEffect(() => {
     const socket = io({
       transports: ['websocket', 'polling'],
       reconnectionAttempts: 10,
@@ -143,6 +235,7 @@ export default function App() {
     socketRef.current = socket;
 
     socket.on('connect', () => {
+      if (!isMountedRef.current) return;
       setSocketConnected(true);
       setSocketId(socket.id);
       const transportName = socket.io?.engine?.transport?.name || 'websocket';
@@ -155,6 +248,7 @@ export default function App() {
     });
 
     socket.on('system:pong', (payload) => {
+      if (!isMountedRef.current) return;
       if (payload?.clientTimestamp) {
         const rtt = Math.round(performance.now() - payload.clientTimestamp);
         setSocketPingLatency(rtt);
@@ -162,17 +256,14 @@ export default function App() {
       }
     });
 
-    // Server-originated queue change broadcast
+    // Server-originated queue change broadcast -> triggers bounded refresh via stable ref
     socket.on('queue:changed', (payload) => {
       addLog('SOCKET', `Server queue event: [${payload.action}] at ${payload.timestamp}`, 'info');
-      if (currentUser?.role === 'student') {
-        fetchMyRequests();
-      } else if (currentUser?.role === 'mentor') {
-        fetchQueue();
-      }
+      triggerBoundedRefresh();
     });
 
     socket.on('disconnect', (reason) => {
+      if (!isMountedRef.current) return;
       setSocketConnected(false);
       setSocketId(null);
       addLog('SOCKET', `Connection dropped: ${reason}`, 'warn');
@@ -180,17 +271,24 @@ export default function App() {
 
     return () => {
       socket.disconnect();
+      socketRef.current = null;
     };
-  }, [addLog, fetchHealth, checkSession, currentUser]);
+  }, [addLog, triggerBoundedRefresh]);
 
-  // Load appropriate data when currentUser changes
+  // 3. User workspace data synchronization - runs ONLY when authenticated user identity or role changes
+  const userKey = currentUser ? `${currentUser._id || currentUser.id}:${currentUser.role}` : null;
   useEffect(() => {
-    if (currentUser?.role === 'student') {
+    const user = currentUserRef.current;
+    if (user?.role === 'student') {
       fetchMyRequests();
-    } else if (currentUser?.role === 'mentor') {
+    } else if (user?.role === 'mentor') {
       fetchQueue();
+    } else {
+      setMyRequests([]);
+      setMentorQueue([]);
     }
-  }, [currentUser, fetchMyRequests, fetchQueue]);
+  }, [userKey, fetchMyRequests, fetchQueue]);
+
 
   // -------------------------------------------------------------------------
   // AUTH ACTIONS
