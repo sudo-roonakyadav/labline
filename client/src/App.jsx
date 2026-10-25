@@ -328,7 +328,7 @@ export default function App() {
 
   // If user opens diagnostics tab and healthData is missing, fetch once
   useEffect(() => {
-    if (activeTab === 'diagnostics' && !healthData && !healthLoading) {
+    if (activeView === 'diagnostics' && !healthData && !healthLoading) {
       fetchHealth();
     }
   }, [activeTab, healthData, healthLoading, fetchHealth]);
@@ -601,44 +601,144 @@ export default function App() {
           </main>
           <Footer onOpenDiagnostics={() => setActiveView('diagnostics')} />
         </>
-      ) : (
-        <>
-          {/* Subnav for Switching Views */}
-          <nav className="sub-nav">
-            <div className="nav-tabs">
-              <button
-                type="button"
-                className={`nav-tab-btn ${activeTab === 'workbench' ? 'active' : ''}`}
-                onClick={() => setActiveTab('workbench')}
-              >
-                {currentUser?.role === 'mentor' ? 'Queue Desk' : 'Help Desk'}
-              </button>
-              <button
-                type="button"
-                className={`nav-tab-btn ${activeTab === 'diagnostics' ? 'active' : ''}`}
-                onClick={() => setActiveTab('diagnostics')}
-              >
-                Diagnostics
-              </button>
+      ) : activeView === 'diagnostics' ? (
+        <main className="page-container">
+          <div className="diagnostics-panel">
+            <div className="page-header">
+              <h1 className="page-heading">System Diagnostics</h1>
+              <p className="page-subheading">
+                Operational verification of API endpoints, database persistence, and Socket.IO real-time channels.
+              </p>
             </div>
 
-            {currentUser?.role === 'student' && activeStudentRequest && (
-              <div className="status-pill waiting">
-                Active Request: #{activeStudentRequest.queuePosition || 1}
-              </div>
-            )}
+            <div className="workspace-grid equal">
+              {/* Left Column: Subsystem Status */}
+              <div className="section-card">
+                <div className="section-card-header">
+                  <span className="section-card-title">Subsystems &amp; Connectivity</span>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={fetchHealth}
+                      disabled={healthLoading}
+                    >
+                      {healthLoading ? 'Checking...' : 'Check /api/health'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={handlePingSocket}
+                      disabled={!socketConnected}
+                    >
+                      Ping Socket
+                    </button>
+                  </div>
+                </div>
 
-            {currentUser?.role === 'mentor' && (
-              <div className="status-pill waiting">
-                {waitingQueue.length} Waiting in Queue
-              </div>
-            )}
-          </nav>
+                <div className="section-card-body" style={{ padding: 0 }}>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table className="diag-table">
+                      <thead>
+                        <tr>
+                          <th>Subsystem</th>
+                          <th>Endpoint / Channel</th>
+                          <th>Status</th>
+                          <th>Telemetry</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td style={{ fontWeight: 600 }}>HTTP Server</td>
+                          <td>GET /api/health</td>
+                          <td>
+                            <span className={`status-pill ${healthError ? 'cancelled' : 'claimed'}`}>
+                              {healthError ? 'Error' : healthData ? 'Ready' : 'Checking'}
+                            </span>
+                          </td>
+                          <td>{healthLatency !== null ? `${healthLatency}ms` : '—'}</td>
+                        </tr>
 
-          {/* Main Workspace Body */}
-          <main className="page-container">
-        {activeTab === 'workbench' ? (
-          authLoading ? (
+                        <tr>
+                          <td style={{ fontWeight: 600 }}>Database</td>
+                          <td>MongoDB Atlas</td>
+                          <td>
+                            <span
+                              className={`status-pill ${
+                                healthData?.database?.connected ? 'claimed' : 'waiting'
+                              }`}
+                            >
+                              {healthData?.database?.connected ? 'Connected' : 'Disconnected'}
+                            </span>
+                          </td>
+                          <td>{healthData?.database?.status || 'Unknown'}</td>
+                        </tr>
+
+                        <tr>
+                          <td style={{ fontWeight: 600 }}>Socket.IO Gateway</td>
+                          <td>Websocket / Polling</td>
+                          <td>
+                            <span className={`status-pill ${socketConnected ? 'claimed' : 'waiting'}`}>
+                              {socketConnected ? 'Online' : 'Offline'}
+                            </span>
+                          </td>
+                          <td>
+                            {socketConnected
+                              ? `${socketTransport || 'ws'} [${socketId?.substring(0, 6)}...] ${
+                                  socketPingLatency !== null ? `(${socketPingLatency}ms)` : ''
+                                }`
+                              : 'Awaiting connection'}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div style={{ padding: '14px 18px', borderTop: '1px solid var(--border-default)', fontSize: '12px', color: 'var(--text-muted)' }}>
+                    Last health probe: {lastChecked || 'Not polled in this view yet'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Column: Telemetry Event Stream */}
+              <div className="section-card">
+                <div className="section-card-header">
+                  <span className="section-card-title">Live Telemetry Events</span>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => setTelemetryLogs([])}
+                  >
+                    Clear Log
+                  </button>
+                </div>
+
+                <div className="section-card-body" style={{ maxHeight: '420px', overflowY: 'auto' }}>
+                  {telemetryLogs.length === 0 ? (
+                    <div style={{ color: 'var(--text-muted)', fontSize: '12px' }}>
+                      No events logged in this session.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontFamily: 'var(--font-mono)', fontSize: '12px' }}>
+                      {telemetryLogs.map((log) => (
+                        <div key={log.id} style={{ display: 'flex', gap: '8px' }}>
+                          <span style={{ color: 'var(--text-muted)' }}>{log.timestamp}</span>
+                          <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>[{log.source}]</span>
+                          <span style={{ color: log.level === 'error' ? 'var(--accent-red)' : log.level === 'success' ? 'var(--accent-green)' : 'var(--text-primary)' }}>
+                            {log.message}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </main>
+      ) : (
+        <main className="page-container">
+          {authLoading ? (
             <div className="empty-box" style={{ margin: '64px auto', maxWidth: '400px' }}>
               <div className="empty-box-title">Loading session...</div>
             </div>
@@ -777,147 +877,9 @@ export default function App() {
               queueActionError={queueActionError}
               queueIntelligence={queueIntelligence}
             />
-          )
-        ) : (
-          /* ----------------------------------------------------------------- */
-          /* SECONDARY SYSTEM DIAGNOSTICS VIEW                                 */
-          /* ----------------------------------------------------------------- */
-          <div className="diagnostics-panel">
-            <div className="page-header">
-              <h1 className="page-heading">System Diagnostics</h1>
-              <p className="page-subheading">
-                Operational verification of API endpoints, database persistence, and Socket.IO real-time channels.
-              </p>
-            </div>
-
-            <div className="workspace-grid equal">
-              {/* Left Column: Subsystem Status */}
-              <div className="section-card">
-                <div className="section-card-header">
-                  <span className="section-card-title">Subsystems &amp; Connectivity</span>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button
-                      type="button"
-                      className="btn"
-                      onClick={fetchHealth}
-                      disabled={healthLoading}
-                    >
-                      {healthLoading ? 'Checking...' : 'Check /api/health'}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      onClick={handlePingSocket}
-                      disabled={!socketConnected}
-                    >
-                      Ping Socket
-                    </button>
-                  </div>
-                </div>
-
-                <div className="section-card-body" style={{ padding: 0 }}>
-                  <div style={{ overflowX: 'auto' }}>
-                    <table className="diag-table">
-                      <thead>
-                        <tr>
-                          <th>Subsystem</th>
-                          <th>Endpoint / Channel</th>
-                          <th>Status</th>
-                          <th>Telemetry</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td style={{ fontWeight: 600 }}>HTTP Server</td>
-                          <td>GET /api/health</td>
-                          <td>
-                            <span className={`status-pill ${healthError ? 'cancelled' : 'claimed'}`}>
-                              {healthError ? 'Error' : healthData ? 'Ready' : 'Checking'}
-                            </span>
-                          </td>
-                          <td>{healthLatency !== null ? `${healthLatency}ms` : '—'}</td>
-                        </tr>
-
-                        <tr>
-                          <td style={{ fontWeight: 600 }}>Database</td>
-                          <td>MongoDB Atlas</td>
-                          <td>
-                            <span
-                              className={`status-pill ${
-                                healthData?.database?.connected ? 'claimed' : 'waiting'
-                              }`}
-                            >
-                              {healthData?.database?.connected ? 'Connected' : 'Disconnected'}
-                            </span>
-                          </td>
-                          <td>{healthData?.database?.status || 'Unknown'}</td>
-                        </tr>
-
-                        <tr>
-                          <td style={{ fontWeight: 600 }}>Socket.IO Gateway</td>
-                          <td>Websocket / Polling</td>
-                          <td>
-                            <span className={`status-pill ${socketConnected ? 'claimed' : 'waiting'}`}>
-                              {socketConnected ? 'Online' : 'Offline'}
-                            </span>
-                          </td>
-                          <td>
-                            {socketConnected
-                              ? `${socketTransport || 'ws'} [${socketId?.substring(0, 6)}...] ${
-                                  socketPingLatency !== null ? `(${socketPingLatency}ms)` : ''
-                                }`
-                              : 'Awaiting connection'}
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <div style={{ padding: '14px 18px', borderTop: '1px solid var(--border-default)', fontSize: '12px', color: 'var(--text-muted)' }}>
-                    Last health probe: {lastChecked || 'Not polled in this view yet'}
-                  </div>
-                </div>
-              </div>
-
-              {/* Right Column: Telemetry Event Stream */}
-              <div className="section-card">
-                <div className="section-card-header">
-                  <span className="section-card-title">Live Telemetry Events</span>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => setTelemetryLogs([])}
-                  >
-                    Clear Log
-                  </button>
-                </div>
-
-                <div className="section-card-body" style={{ maxHeight: '420px', overflowY: 'auto' }}>
-                  {telemetryLogs.length === 0 ? (
-                    <div style={{ color: 'var(--text-muted)', fontSize: '12px' }}>
-                      No events logged in this session.
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontFamily: 'var(--font-mono)', fontSize: '12px' }}>
-                      {telemetryLogs.map((log) => (
-                        <div key={log.id} style={{ display: 'flex', gap: '8px' }}>
-                          <span style={{ color: 'var(--text-muted)' }}>{log.timestamp}</span>
-                          <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>[{log.source}]</span>
-                          <span style={{ color: log.level === 'error' ? 'var(--accent-red)' : log.level === 'success' ? 'var(--accent-green)' : 'var(--text-primary)' }}>
-                            {log.message}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </main>
-    </>
-  )}
+          )}
+        </main>
+      )}
 
   {/* Accessible Authentication Modal */}
   <AuthModal
