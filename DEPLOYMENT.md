@@ -1,6 +1,6 @@
 # LabLine Deployment Guide (Render & MongoDB Atlas)
 
-This repository is prepared for single-origin deployment on **Render** (Web Service) connected to **MongoDB Atlas** for persistent production data storage.
+This repository is prepared for single-origin deployment on **Render** (Web Service, `region: singapore`) connected to **MongoDB Atlas** for persistent production data storage.
 
 > **Status Notice:** This document describes deployment configuration and manual setup steps. Code preparation has been completed; actual hosted provisioning must be performed in your Render and MongoDB Atlas dashboards.
 
@@ -10,18 +10,28 @@ This repository is prepared for single-origin deployment on **Render** (Web Serv
 
 ### A. Create Cluster & Database User
 1. Log into [MongoDB Atlas](https://cloud.mongodb.com/).
-2. Create a new database deployment selecting the **M0 Free** cluster tier (choose a cloud provider and region closest to your intended Render region, e.g., AWS / Oregon `us-west-2` or Frankfurt `eu-central-1`).
-3. Under **Security > Database Access**, click **Add New Database User**:
+2. Create a new database deployment selecting the **M0 Free** cluster tier.
+3. In the region selector, select **Singapore** (e.g., AWS `ap-southeast-1`, Google Cloud `asia-southeast1`, or Azure `southeastasia`) if available, co-locating your database in the same geographic region as the Render web service (`region: singapore`) to minimize latency.
+4. Under **Security > Database Access**, click **Add New Database User**:
    - Authentication Method: **Password**
    - Username: `labline_app` (or chosen identifier)
    - Password: Generate a strong alphanumeric password (store securely in a password manager; never commit to source control).
    - Database User Privileges: `Read and write to any database` (or specific `labline` database).
 
-### B. Network Access Configuration
-1. Under **Security > Network Access**, click **Add IP Address**.
-2. Select **Allow Access From Anywhere** (`0.0.0.0/0`) or enter the dedicated outbound IP addresses if using a paid Render plan with static outbound IPs.
-   - *Note:* Render free instances use dynamic IPs, requiring `0.0.0.0/0`. Security is enforced by strong database user credentials and TLS.
-3. Save the entry.
+### B. Network Access Configuration & Security Guidelines
+Configure the IP access list in MongoDB Atlas under **Security > Network Access**:
+
+> [!WARNING] Important Security Notice on Broad Access
+> Setting `0.0.0.0/0` allows connection attempts from any IP address across the public internet. Although connections still require valid database credentials and TLS encryption, **`0.0.0.0/0` must not be treated as a preferred permanent configuration**.
+
+1. **Recommended Permanent Configuration (Restricted CIDR Ranges):**
+   - In the [Render Dashboard](https://dashboard.render.com/), open your deployed `labline` Web Service.
+   - Navigate to the **Settings** or **Connect** section and locate the **Outbound IP Addresses** assigned to the Singapore region.
+   - In MongoDB Atlas under **Network Access > Add IP Address**, enter each of Render's regional outbound CIDR blocks individually with an informative comment (e.g., `Render Singapore Egress IP`).
+2. **Temporary Fallback (Student Evaluation / Initial Demo Only):**
+   - If utilizing Render's free tier where shared or dynamic egress pools make static CIDR whitelisting impractical during initial verification, you may temporarily select **Allow Access From Anywhere** (`0.0.0.0/0`).
+   - **Label this access rule explicitly as temporary** (e.g., `Temporary Demo Access - Replace with Narrow CIDRs`).
+   - Ensure the database user is protected by a high-entropy password, and replace `0.0.0.0/0` with restricted ranges as soon as practical or before handling real institutional data.
 
 ### C. Retrieve Connection URI
 1. In **Deployment > Database**, click **Connect** on your cluster.
@@ -40,8 +50,14 @@ This repository is prepared for single-origin deployment on **Render** (Web Serv
 1. Log into [Render](https://dashboard.render.com/).
 2. Click **New +** and select **Blueprint**.
 3. Connect your GitHub repository: `https://github.com/sudo-roonakyadav/labline`.
-4. Render detects the committed [`render.yaml`](./render.yaml) file.
-5. In the blueprint initialization screen, give your deployment a project name.
+4. Render detects the committed [`render.yaml`](./render.yaml) file, configuring:
+   - Service: `labline` (Node.js Web Service)
+   - Region: `singapore`
+   - Plan: `free`
+   - Build Command: `npm ci && npm run build`
+   - Start Command: `npm start`
+   - Health Check Path: `/api/health/ready`
+5. In the blueprint initialization screen, confirm your project name.
 
 ### B. Securely Supply Environment Secrets
 Under the Web Service environment variables:

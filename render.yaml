@@ -2,6 +2,7 @@ services:
   - type: web
     name: labline
     runtime: node
+    region: singapore
     plan: free
     buildCommand: npm ci && npm run build
     startCommand: npm start
