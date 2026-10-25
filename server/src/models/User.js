@@ -33,6 +33,11 @@ const userSchema = new mongoose.Schema(
       default: 'student',
       required: true,
     },
+    isAvailable: {
+      type: Boolean,
+      default: true,
+      index: true,
+    },
   },
   {
     timestamps: true,
@@ -54,6 +59,7 @@ userSchema.methods.toSafeObject = function () {
     email: this.email,
     name: this.name,
     role: this.role,
+    isAvailable: this.isAvailable !== false,
     createdAt: this.createdAt,
     updatedAt: this.updatedAt,
   };

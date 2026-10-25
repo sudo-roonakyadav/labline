@@ -28,6 +28,16 @@ const helpRequestSchema = new mongoose.Schema(
       maxlength: [3000, 'Code snippet cannot exceed 3000 characters'],
       default: '',
     },
+    category: {
+      type: String,
+      enum: {
+        values: ['dsa', 'frontend', 'backend', 'database', 'environment', 'other'],
+        message: '{VALUE} is not a valid request category',
+      },
+      default: 'other',
+      required: true,
+      index: true,
+    },
     status: {
       type: String,
       enum: {
@@ -43,6 +53,30 @@ const helpRequestSchema = new mongoose.Schema(
       ref: 'User',
       default: null,
       index: true,
+    },
+    resolutionNotes: {
+      type: String,
+      trim: true,
+      maxlength: [1000, 'Resolution notes cannot exceed 1000 characters'],
+      default: '',
+    },
+    feedback: {
+      rating: {
+        type: Number,
+        min: 1,
+        max: 5,
+        default: null,
+      },
+      comment: {
+        type: String,
+        trim: true,
+        maxlength: [500, 'Feedback comment cannot exceed 500 characters'],
+        default: '',
+      },
+      submittedAt: {
+        type: Date,
+        default: null,
+      },
     },
     claimedAt: {
       type: Date,

@@ -469,4 +469,293 @@ describe('LabLine Full-Stack API Test Suite', () => {
       assert.equal(closedRes.status, 409);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // QUEUE INTELLIGENCE, CATEGORIES, AVAILABILITY & SESSION OUTCOMES
+  // -------------------------------------------------------------------------
+  describe('Queue Intelligence, Categories, Availability & Session Outcomes', () => {
+    let studentCookie;
+    let studentUser;
+    let otherStudentCookie;
+    let mentorCookie;
+    let mentorUser;
+
+    before(async () => {
+      // Create student
+      const sRes = await request(app)
+        .post('/api/auth/register')
+        .send({ email: 'cat_student@scaler.com', name: 'Cat Student', password: 'Password123!' });
+      studentCookie = sRes.headers['set-cookie'];
+      studentUser = sRes.body.user;
+
+      // Create other student
+      const osRes = await request(app)
+        .post('/api/auth/register')
+        .send({ email: 'other_student@scaler.com', name: 'Other Student', password: 'Password123!' });
+      otherStudentCookie = osRes.headers['set-cookie'];
+
+      // Create mentor
+      const mRes = await request(app)
+        .post('/api/auth/register')
+        .send({ email: 'cat_mentor@scaler.com', name: 'Cat Mentor', password: 'Password123!' });
+      mentorUser = await User.findById(mRes.body.user.id);
+      mentorUser.role = 'mentor';
+      mentorUser.isAvailable = true;
+      await mentorUser.save();
+
+      const mLogin = await request(app)
+        .post('/api/auth/login')
+        .send({ email: 'cat_mentor@scaler.com', password: 'Password123!' });
+      mentorCookie = mLogin.headers['set-cookie'];
+    });
+
+    test('validates request category and defaults to "other" when unspecified', async () => {
+      // Invalid category rejected with 422
+      const badCatRes = await request(app)
+        .post('/api/requests')
+        .set('Cookie', studentCookie)
+        .send({
+          topic: 'Bad Category Test',
+          description: 'Testing validation error handling for invalid category.',
+          category: 'invalid_category_123',
+        });
+      assert.equal(badCatRes.status, 422);
+      assert.equal(badCatRes.body.error, 'Unprocessable Entity');
+
+      // Valid specific category
+      const validCatRes = await request(app)
+        .post('/api/requests')
+        .set('Cookie', studentCookie)
+        .send({
+          topic: 'CSS Flexbox Alignment Issue',
+          description: 'Sub-items are not wrapping correctly in Firefox layout.',
+          category: 'frontend',
+        });
+      assert.equal(validCatRes.status, 201);
+      assert.equal(validCatRes.body.request.category, 'frontend');
+
+      // Default category fallback
+      const defaultCatRes = await request(app)
+        .post('/api/requests')
+        .set('Cookie', studentCookie)
+        .send({
+          topic: 'General Discussion',
+          description: 'General architectural discussion on queue design patterns.',
+        });
+      assert.equal(defaultCatRes.status, 201);
+      assert.equal(defaultCatRes.body.request.category, 'other');
+    });
+
+    test('mentor queue category filtering preserves strict FIFO ordering within category', async () => {
+      // Clear waiting requests for deterministic queue check
+      await HelpRequest.deleteMany({ status: 'waiting' });
+
+      // Create requests with distinct categories
+      await request(app)
+        .post('/api/requests')
+        .set('Cookie', studentCookie)
+        .send({
+          topic: 'Backend Session Auth Issue',
+          description: 'Express session cookies are rejected across subdomains.',
+          category: 'backend',
+        });
+
+      const fe1Res = await request(app)
+        .post('/api/requests')
+        .set('Cookie', studentCookie)
+        .send({
+          topic: 'Vite Proxy Setup Error',
+          description: 'Proxy configuration does not rewrite websocket headers.',
+          category: 'frontend',
+        });
+
+      const fe2Res = await request(app)
+        .post('/api/requests')
+        .set('Cookie', studentCookie)
+        .send({
+          topic: 'React SVG Wave Rendering',
+          description: 'Smooth SVG cubic beziers jitter during keyframe updates.',
+          category: 'frontend',
+        });
+
+      // Filter by category=frontend
+      const feQueueRes = await request(app)
+        .get('/api/queue?category=frontend')
+        .set('Cookie', mentorCookie);
+
+      assert.equal(feQueueRes.status, 200);
+      assert.equal(feQueueRes.body.queue.length, 2);
+      assert.equal(feQueueRes.body.queue[0]._id, fe1Res.body.request._id);
+      assert.equal(feQueueRes.body.queue[1]._id, fe2Res.body.request._id);
+      assert.equal(feQueueRes.body.activeFilter.category, 'frontend');
+    });
+
+    test('mentor supplies structured resolution notes upon closing session', async () => {
+      const waitDoc = await HelpRequest.findOne({ status: 'waiting', category: 'frontend' });
+      assert(waitDoc);
+
+      // Claim
+      await request(app)
+        .post(`/api/requests/${waitDoc._id}/claim`)
+        .set('Cookie', mentorCookie);
+
+      // Transition to in_progress
+      await request(app)
+        .patch(`/api/requests/${waitDoc._id}/status`)
+        .set('Cookie', mentorCookie)
+        .send({ status: 'in_progress' });
+
+      // Reject overlong resolution notes (> 1000 chars)
+      const longNotes = 'x'.repeat(1001);
+      const badNotesRes = await request(app)
+        .patch(`/api/requests/${waitDoc._id}/status`)
+        .set('Cookie', mentorCookie)
+        .send({ status: 'resolved', resolutionNotes: longNotes });
+      assert.equal(badNotesRes.status, 422);
+
+      // Transition to resolved with valid resolution notes
+      const resolveRes = await request(app)
+        .patch(`/api/requests/${waitDoc._id}/status`)
+        .set('Cookie', mentorCookie)
+        .send({
+          status: 'resolved',
+          resolutionNotes: 'Configured Vite proxy ws: true option in vite.config.js to support upgrade headers.',
+        });
+
+      assert.equal(resolveRes.status, 200);
+      assert.equal(resolveRes.body.request.status, 'resolved');
+      assert.equal(
+        resolveRes.body.request.resolutionNotes,
+        'Configured Vite proxy ws: true option in vite.config.js to support upgrade headers.'
+      );
+      assert(resolveRes.body.request.resolvedAt);
+    });
+
+    test('student submits verified feedback with rating and comment for resolved session', async () => {
+      const resolvedDoc = await HelpRequest.findOne({
+        status: 'resolved',
+        student: studentUser.id,
+      });
+      assert(resolvedDoc);
+
+      // Invalid rating (out of bounds)
+      const badRatingRes = await request(app)
+        .post(`/api/requests/${resolvedDoc._id}/feedback`)
+        .set('Cookie', studentCookie)
+        .send({ rating: 6, comment: 'Too high' });
+      assert.equal(badRatingRes.status, 422);
+
+      // Non-owner student rejected (403)
+      const wrongStudentRes = await request(app)
+        .post(`/api/requests/${resolvedDoc._id}/feedback`)
+        .set('Cookie', otherStudentCookie)
+        .send({ rating: 5, comment: 'Sneaky rating' });
+      assert.equal(wrongStudentRes.status, 403);
+
+      // Valid feedback submission
+      const validFeedbackRes = await request(app)
+        .post(`/api/requests/${resolvedDoc._id}/feedback`)
+        .set('Cookie', studentCookie)
+        .send({
+          rating: 5,
+          comment: 'Resolved quickly with clear explanation of Vite websocket proxies.',
+        });
+
+      assert.equal(validFeedbackRes.status, 200);
+      assert.equal(validFeedbackRes.body.request.feedback.rating, 5);
+      assert.equal(
+        validFeedbackRes.body.request.feedback.comment,
+        'Resolved quickly with clear explanation of Vite websocket proxies.'
+      );
+      assert(validFeedbackRes.body.request.feedback.submittedAt);
+
+      // Prevent duplicate feedback submission (409 Conflict)
+      const duplicateRes = await request(app)
+        .post(`/api/requests/${resolvedDoc._id}/feedback`)
+        .set('Cookie', studentCookie)
+        .send({ rating: 4, comment: 'Attempting to overwrite' });
+      assert.equal(duplicateRes.status, 409);
+    });
+
+    test('feedback rejected if request is not in resolved state (409 Conflict)', async () => {
+      // Find a waiting request
+      const waitingDoc = await HelpRequest.findOne({
+        status: 'waiting',
+        student: studentUser.id,
+      });
+      assert(waitingDoc);
+
+      const res = await request(app)
+        .post(`/api/requests/${waitingDoc._id}/feedback`)
+        .set('Cookie', studentCookie)
+        .send({ rating: 5, comment: 'Premature feedback' });
+
+      assert.equal(res.status, 409);
+      assert.equal(res.body.error, 'Conflict');
+    });
+
+    test('mentor availability toggle via PATCH /api/queue/availability', async () => {
+      // Student cannot toggle availability (403)
+      const studentAttempt = await request(app)
+        .patch('/api/queue/availability')
+        .set('Cookie', studentCookie)
+        .send({ isAvailable: false });
+      assert.equal(studentAttempt.status, 403);
+
+      // Non-boolean value rejected (422)
+      const badTypeRes = await request(app)
+        .patch('/api/queue/availability')
+        .set('Cookie', mentorCookie)
+        .send({ isAvailable: 'not-a-bool' });
+      assert.equal(badTypeRes.status, 422);
+
+      // Mentor sets isAvailable to false
+      const setOffRes = await request(app)
+        .patch('/api/queue/availability')
+        .set('Cookie', mentorCookie)
+        .send({ isAvailable: false });
+      assert.equal(setOffRes.status, 200);
+      assert.equal(setOffRes.body.user.isAvailable, false);
+
+      // Mentor restores availability to true
+      const setOnRes = await request(app)
+        .patch('/api/queue/availability')
+        .set('Cookie', mentorCookie)
+        .send({ isAvailable: true });
+      assert.equal(setOnRes.status, 200);
+      assert.equal(setOnRes.body.user.isAvailable, true);
+    });
+
+    test('queue history returns resolved requests with resolution notes and feedback', async () => {
+      const historyRes = await request(app)
+        .get('/api/queue/history')
+        .set('Cookie', mentorCookie);
+
+      assert.equal(historyRes.status, 200);
+      assert(Array.isArray(historyRes.body.history));
+      assert(historyRes.body.history.length >= 1);
+      const sample = historyRes.body.history[0];
+      assert.equal(sample.status, 'resolved');
+      assert(sample.resolutionNotes);
+    });
+
+    test('queue intelligence provides telemetry and honest estimation thresholding', async () => {
+      const intelRes = await request(app).get('/api/queue/intelligence');
+      assert.equal(intelRes.status, 200);
+      assert(typeof intelRes.body.waitingCount === 'number');
+      assert(typeof intelRes.body.availableMentors === 'number');
+      assert(['insufficient_data', 'no_mentors_available', 'moderate', 'high'].includes(intelRes.body.confidence));
+
+      // Check student /mine endpoint also returns intelligence
+      const mineRes = await request(app)
+        .get('/api/requests/mine')
+        .set('Cookie', studentCookie);
+      assert.equal(mineRes.status, 200);
+      const waitingReq = mineRes.body.requests.find((r) => r.status === 'waiting');
+      if (waitingReq) {
+        assert(waitingReq.intelligence);
+        assert(['insufficient_data', 'no_mentors_available', 'moderate', 'high'].includes(waitingReq.intelligence.confidence));
+      }
+    });
+  });
 });

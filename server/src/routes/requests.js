@@ -3,8 +3,11 @@ import mongoose from 'mongoose';
 import { HelpRequest } from '../models/HelpRequest.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { emitQueueChange } from '../socket/index.js';
+import { calculateQueueIntelligence } from '../utils/queueIntelligence.js';
 
 export const requestsRouter = Router();
+
+const VALID_CATEGORIES = ['dsa', 'frontend', 'backend', 'database', 'environment', 'other'];
 
 // Helper to validate ObjectId format
 function isValidObjectId(id) {
@@ -18,7 +21,7 @@ function isValidObjectId(id) {
 // POST /api/requests - Student creates a new help request
 requestsRouter.post('/', requireAuth, requireRole('student'), async (req, res, next) => {
   try {
-    const { topic, description, codeSnippet } = req.body;
+    const { topic, description, codeSnippet, category } = req.body;
     const errors = [];
 
     if (!topic || typeof topic !== 'string' || topic.trim().length < 2 || topic.trim().length > 100) {
@@ -35,6 +38,15 @@ requestsRouter.post('/', requireAuth, requireRole('student'), async (req, res, n
       }
     }
 
+    let resolvedCategory = 'other';
+    if (category !== undefined && category !== null && category !== '') {
+      if (typeof category !== 'string' || !VALID_CATEGORIES.includes(category.toLowerCase())) {
+        errors.push(`Category must be one of: ${VALID_CATEGORIES.join(', ')}.`);
+      } else {
+        resolvedCategory = category.toLowerCase();
+      }
+    }
+
     if (errors.length > 0) {
       return res.status(422).json({
         error: 'Unprocessable Entity',
@@ -48,6 +60,7 @@ requestsRouter.post('/', requireAuth, requireRole('student'), async (req, res, n
       topic: topic.trim(),
       description: description.trim(),
       codeSnippet: (codeSnippet || '').trim(),
+      category: resolvedCategory,
       status: 'waiting',
     });
 
@@ -57,6 +70,7 @@ requestsRouter.post('/', requireAuth, requireRole('student'), async (req, res, n
       createdAt: { $lte: newRequest.createdAt },
     });
 
+    const intelligence = await calculateQueueIntelligence(queuePosition);
     const populated = await newRequest.populate('student', 'name email');
 
     // Notify real-time listeners of queue state change
@@ -67,6 +81,7 @@ requestsRouter.post('/', requireAuth, requireRole('student'), async (req, res, n
       request: {
         ...populated.toObject(),
         queuePosition,
+        intelligence,
       },
     });
   } catch (err) {
@@ -77,11 +92,30 @@ requestsRouter.post('/', requireAuth, requireRole('student'), async (req, res, n
 // GET /api/requests/mine - Student views own requests and queue position
 requestsRouter.get('/mine', requireAuth, requireRole('student'), async (req, res, next) => {
   try {
-    const requests = await HelpRequest.find({ student: req.user._id })
+    const { status, category, search } = req.query;
+    const filter = { student: req.user._id };
+
+    if (status && ['waiting', 'claimed', 'in_progress', 'resolved', 'cancelled'].includes(status)) {
+      filter.status = status;
+    }
+
+    if (category && VALID_CATEGORIES.includes(category.toLowerCase())) {
+      filter.category = category.toLowerCase();
+    }
+
+    if (search && typeof search === 'string' && search.trim().length > 0) {
+      filter.$or = [
+        { topic: { $regex: search.trim(), $options: 'i' } },
+        { description: { $regex: search.trim(), $options: 'i' } },
+        { resolutionNotes: { $regex: search.trim(), $options: 'i' } },
+      ];
+    }
+
+    const requests = await HelpRequest.find(filter)
       .sort({ createdAt: -1 })
       .populate('mentor', 'name email');
 
-    // Compute live queue position for all waiting requests
+    // Compute live queue position and telemetry for waiting requests
     const enhancedRequests = await Promise.all(
       requests.map(async (doc) => {
         const obj = doc.toObject();
@@ -90,8 +124,10 @@ requestsRouter.get('/mine', requireAuth, requireRole('student'), async (req, res
             status: 'waiting',
             createdAt: { $lte: obj.createdAt },
           });
+          obj.intelligence = await calculateQueueIntelligence(obj.queuePosition);
         } else {
           obj.queuePosition = null;
+          obj.intelligence = null;
         }
         return obj;
       })
@@ -218,7 +254,7 @@ requestsRouter.post('/:id/claim', requireAuth, requireRole('mentor'), async (req
 requestsRouter.patch('/:id/status', requireAuth, requireRole('mentor'), async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { status: targetStatus } = req.body;
+    const { status: targetStatus, resolutionNotes } = req.body;
 
     if (!isValidObjectId(id)) {
       return res.status(404).json({
@@ -232,6 +268,15 @@ requestsRouter.patch('/:id/status', requireAuth, requireRole('mentor'), async (r
         error: 'Unprocessable Entity',
         message: 'Status must be updated to either "in_progress" or "resolved".',
       });
+    }
+
+    if (resolutionNotes !== undefined && resolutionNotes !== null) {
+      if (typeof resolutionNotes !== 'string' || resolutionNotes.length > 1000) {
+        return res.status(422).json({
+          error: 'Unprocessable Entity',
+          message: 'Resolution notes cannot exceed 1000 characters.',
+        });
+      }
     }
 
     const request = await HelpRequest.findById(id);
@@ -272,6 +317,9 @@ requestsRouter.patch('/:id/status', requireAuth, requireRole('mentor'), async (r
       }
       request.status = 'resolved';
       request.resolvedAt = new Date();
+      if (resolutionNotes !== undefined && resolutionNotes !== null) {
+        request.resolutionNotes = resolutionNotes.trim();
+      }
     }
 
     await request.save();
@@ -282,6 +330,90 @@ requestsRouter.patch('/:id/status', requireAuth, requireRole('mentor'), async (r
 
     res.status(200).json({
       message: `Help request moved to "${request.status}".`,
+      request,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/requests/:id/feedback - Student submits verified outcome rating & comment
+requestsRouter.post('/:id/feedback', requireAuth, requireRole('student'), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { rating, comment } = req.body;
+
+    if (!isValidObjectId(id)) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Invalid request ID format.',
+      });
+    }
+
+    const request = await HelpRequest.findById(id);
+
+    if (!request) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Help request not found.',
+      });
+    }
+
+    // Authorization: Student can only submit feedback on their own request
+    if (request.student.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'You can only submit feedback for your own help requests.',
+      });
+    }
+
+    // Must be resolved
+    if (request.status !== 'resolved') {
+      return res.status(409).json({
+        error: 'Conflict',
+        message: `Feedback can only be submitted for resolved requests (current status: "${request.status}").`,
+      });
+    }
+
+    // Check if feedback already submitted
+    if (request.feedback && request.feedback.rating) {
+      return res.status(409).json({
+        error: 'Conflict',
+        message: 'Feedback has already been recorded for this session.',
+      });
+    }
+
+    const numRating = Number(rating);
+    if (!Number.isInteger(numRating) || numRating < 1 || numRating > 5) {
+      return res.status(422).json({
+        error: 'Unprocessable Entity',
+        message: 'Rating must be an integer between 1 and 5.',
+      });
+    }
+
+    if (comment !== undefined && comment !== null) {
+      if (typeof comment !== 'string' || comment.length > 500) {
+        return res.status(422).json({
+          error: 'Unprocessable Entity',
+          message: 'Feedback comment cannot exceed 500 characters.',
+        });
+      }
+    }
+
+    request.feedback = {
+      rating: numRating,
+      comment: (comment || '').trim(),
+      submittedAt: new Date(),
+    };
+
+    await request.save();
+    await request.populate('student', 'name email');
+    await request.populate('mentor', 'name email');
+
+    emitQueueChange('feedback_submitted');
+
+    res.status(200).json({
+      message: 'Feedback recorded successfully.',
       request,
     });
   } catch (err) {
