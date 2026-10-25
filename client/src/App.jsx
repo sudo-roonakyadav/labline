@@ -1,5 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { io } from 'socket.io-client';
+import Navbar from './components/Navbar.jsx';
+import LandingHero from './components/LandingHero.jsx';
+import SignalVisualizer from './components/SignalVisualizer.jsx';
+import LandingWorkflows from './components/LandingWorkflows.jsx';
+import AuthModal from './components/AuthModal.jsx';
+import Footer from './components/Footer.jsx';
 
 function formatDuration(dateString) {
   if (!dateString) return '0m';
@@ -13,7 +19,12 @@ function formatDuration(dateString) {
 }
 
 export default function App() {
-  // Navigation: 'workbench' | 'diagnostics'
+  // Primary View Mode: 'landing' | 'workspace' | 'diagnostics'
+  const [activeView, setActiveView] = useState('landing');
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authModalMode, setAuthModalMode] = useState('login');
+
+  // Secondary Tab in Workspace (if applicable): 'workbench' | 'diagnostics'
   const [activeTab, setActiveTab] = useState('workbench');
 
   // Authentication State
@@ -128,13 +139,16 @@ export default function App() {
         const data = await res.json();
         if (!isMountedRef.current) return;
         setCurrentUser(data.user);
+        setActiveView('workspace');
         addLog('AUTH', `Restored session for ${data.user.email} (${data.user.role})`, 'success');
       } else {
         setCurrentUser(null);
+        setActiveView('landing');
       }
     } catch (err) {
       if (isMountedRef.current) {
         setCurrentUser(null);
+        setActiveView('landing');
       }
     } finally {
       if (isMountedRef.current) {
@@ -350,6 +364,7 @@ export default function App() {
       setCurrentUser(null);
       setMyRequests([]);
       setMentorQueue([]);
+      setActiveView('landing');
     } catch (err) {
       addLog('AUTH', `Logout error: ${err.message}`, 'error');
     }
@@ -476,66 +491,88 @@ export default function App() {
   return (
     <div className="app-layout">
       {/* Top Application Header */}
-      <header className="header-nav">
-        <div className="nav-brand">
-          <span className="brand-title">LABLINE</span>
-          <span className="brand-desc">Lab Doubt Queue</span>
-        </div>
+      <Navbar
+        currentUser={currentUser}
+        socketConnected={socketConnected}
+        activeView={activeView}
+        setActiveView={setActiveView}
+        onOpenAuth={(mode) => {
+          setAuthModalMode(mode);
+          setAuthModalOpen(true);
+        }}
+        onLogout={handleLogout}
+      />
 
-        <div className="nav-actions">
-          <div className="connection-indicator">
-            <span className={`indicator-dot ${socketConnected ? 'connected' : 'disconnected'}`} />
-            <span>{socketConnected ? 'Live' : 'Connecting'}</span>
-          </div>
+      {activeView === 'landing' ? (
+        <>
+          <main>
+            <LandingHero
+              currentUser={currentUser}
+              onOpenAuth={(mode) => {
+                setAuthModalMode(mode);
+                setAuthModalOpen(true);
+              }}
+              onEnterWorkspace={() => setActiveView('workspace')}
+            />
 
-          {currentUser ? (
-            <div className="user-identity">
-              <span className="user-name">{currentUser.name}</span>
-              <span className={`role-badge ${currentUser.role}`}>{currentUser.role}</span>
-              <button type="button" className="btn btn-secondary" onClick={handleLogout}>
-                Sign Out
+            <div id="lifecycle" className="landing-workflows-wrapper">
+              <section className="landing-section">
+                <div className="section-meta-header">
+                  <span className="section-index font-mono">01 // LIFECYCLE ARCHITECTURE</span>
+                  <h2 className="section-headline">FROM SIGNAL EMISSION TO RESOLUTION</h2>
+                  <p className="section-subtext">
+                    The signature carrier wave: trace a student blocker through the 5 deterministic phases of laboratory assistance.
+                  </p>
+                </div>
+                <SignalVisualizer />
+              </section>
+            </div>
+
+            <LandingWorkflows
+              onOpenAuth={(mode) => {
+                setAuthModalMode(mode);
+                setAuthModalOpen(true);
+              }}
+            />
+          </main>
+          <Footer onOpenDiagnostics={() => setActiveView('diagnostics')} />
+        </>
+      ) : (
+        <>
+          {/* Subnav for Switching Views */}
+          <nav className="sub-nav">
+            <div className="nav-tabs">
+              <button
+                type="button"
+                className={`nav-tab-btn ${activeTab === 'workbench' ? 'active' : ''}`}
+                onClick={() => setActiveTab('workbench')}
+              >
+                {currentUser?.role === 'mentor' ? 'Queue Desk' : 'Help Desk'}
+              </button>
+              <button
+                type="button"
+                className={`nav-tab-btn ${activeTab === 'diagnostics' ? 'active' : ''}`}
+                onClick={() => setActiveTab('diagnostics')}
+              >
+                Diagnostics
               </button>
             </div>
-          ) : (
-            <span className="role-badge">Guest</span>
-          )}
-        </div>
-      </header>
 
-      {/* Subnav for Switching Views */}
-      <nav className="sub-nav">
-        <div className="nav-tabs">
-          <button
-            type="button"
-            className={`nav-tab-btn ${activeTab === 'workbench' ? 'active' : ''}`}
-            onClick={() => setActiveTab('workbench')}
-          >
-            {currentUser?.role === 'mentor' ? 'Queue Desk' : 'Help Desk'}
-          </button>
-          <button
-            type="button"
-            className={`nav-tab-btn ${activeTab === 'diagnostics' ? 'active' : ''}`}
-            onClick={() => setActiveTab('diagnostics')}
-          >
-            Diagnostics
-          </button>
-        </div>
+            {currentUser?.role === 'student' && activeStudentRequest && (
+              <div className="status-pill waiting">
+                Active Request: #{activeStudentRequest.queuePosition || 1}
+              </div>
+            )}
 
-        {currentUser?.role === 'student' && activeStudentRequest && (
-          <div className="status-pill waiting">
-            Active Request: #{activeStudentRequest.queuePosition || 1}
-          </div>
-        )}
+            {currentUser?.role === 'mentor' && (
+              <div className="status-pill waiting">
+                {waitingQueue.length} Waiting in Queue
+              </div>
+            )}
+          </nav>
 
-        {currentUser?.role === 'mentor' && (
-          <div className="status-pill waiting">
-            {waitingQueue.length} Waiting in Queue
-          </div>
-        )}
-      </nav>
-
-      {/* Main Workspace Body */}
-      <main className="page-container">
+          {/* Main Workspace Body */}
+          <main className="page-container">
         {activeTab === 'workbench' ? (
           authLoading ? (
             <div className="empty-box" style={{ margin: '64px auto', maxWidth: '400px' }}>
@@ -1172,6 +1209,20 @@ export default function App() {
           </div>
         )}
       </main>
-    </div>
-  );
+    </>
+  )}
+
+  {/* Accessible Authentication Modal */}
+  <AuthModal
+    isOpen={authModalOpen}
+    initialMode={authModalMode}
+    onClose={() => setAuthModalOpen(false)}
+    onSuccess={(user) => {
+      setCurrentUser(user);
+      setAuthModalOpen(false);
+      setActiveView('workspace');
+    }}
+  />
+</div>
+);
 }
