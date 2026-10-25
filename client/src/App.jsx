@@ -4,6 +4,8 @@ import Navbar from './components/Navbar.jsx';
 import LandingHero from './components/LandingHero.jsx';
 import SignalVisualizer from './components/SignalVisualizer.jsx';
 import LandingWorkflows from './components/LandingWorkflows.jsx';
+import StudentWorkspace from './components/StudentWorkspace.jsx';
+import MentorWorkspace from './components/MentorWorkspace.jsx';
 import AuthModal from './components/AuthModal.jsx';
 import Footer from './components/Footer.jsx';
 
@@ -39,7 +41,6 @@ export default function App() {
   // Student Help Request State
   const [myRequests, setMyRequests] = useState([]);
   const [myRequestsLoading, setMyRequestsLoading] = useState(false);
-  const [requestForm, setRequestForm] = useState({ topic: '', description: '', codeSnippet: '' });
   const [requestSubmitting, setRequestSubmitting] = useState(false);
   const [requestError, setRequestError] = useState(null);
   const [requestSuccess, setRequestSuccess] = useState(null);
@@ -48,6 +49,7 @@ export default function App() {
   const [mentorQueue, setMentorQueue] = useState([]);
   const [mentorQueueLoading, setMentorQueueLoading] = useState(false);
   const [queueActionError, setQueueActionError] = useState(null);
+  const [queueIntelligence, setQueueIntelligence] = useState(null);
 
   // Diagnostics State
   const [healthData, setHealthData] = useState(null);
@@ -223,6 +225,19 @@ export default function App() {
     }
   }, [addLog]);
 
+  const fetchQueueIntelligence = useCallback(async () => {
+    try {
+      const res = await fetch('/api/queue/intelligence', { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (!isMountedRef.current) return;
+        setQueueIntelligence(data);
+      }
+    } catch (err) {
+      // Non-critical telemetry probe
+    }
+  }, []);
+
   // Bounded coalesced refresh to avoid hammering endpoints on high-frequency socket broadcasts
   const triggerBoundedRefresh = useCallback(() => {
     if (refreshTimerRef.current) {
@@ -235,9 +250,10 @@ export default function App() {
         fetchMyRequests();
       } else if (user?.role === 'mentor') {
         fetchQueue();
+        fetchQueueIntelligence();
       }
     }, 200);
-  }, [fetchMyRequests, fetchQueue]);
+  }, [fetchMyRequests, fetchQueue, fetchQueueIntelligence]);
 
   // -------------------------------------------------------------------------
   // LIFECYCLE & SOCKET SETUP
@@ -303,11 +319,12 @@ export default function App() {
       fetchMyRequests();
     } else if (user?.role === 'mentor') {
       fetchQueue();
+      fetchQueueIntelligence();
     } else {
       setMyRequests([]);
       setMentorQueue([]);
     }
-  }, [userKey, fetchMyRequests, fetchQueue]);
+  }, [userKey, fetchMyRequests, fetchQueue, fetchQueueIntelligence]);
 
   // If user opens diagnostics tab and healthData is missing, fetch once
   useEffect(() => {
@@ -370,8 +387,7 @@ export default function App() {
     }
   };
 
-  const handleCreateRequest = async (e) => {
-    e.preventDefault();
+  const handleCreateRequest = async ({ topic, description, codeSnippet, category }) => {
     setRequestSubmitting(true);
     setRequestError(null);
     setRequestSuccess(null);
@@ -381,7 +397,7 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify(requestForm),
+        body: JSON.stringify({ topic, description, codeSnippet, category }),
       });
 
       const data = await res.json();
@@ -389,20 +405,21 @@ export default function App() {
         throw new Error(data.message || data.error || 'Failed to submit help request.');
       }
 
-      setRequestSuccess(`Request added to queue. Position: #${data.request.queuePosition}`);
-      setRequestForm({ topic: '', description: '', codeSnippet: '' });
-      addLog('QUEUE', `Created help request: "${data.request.topic}"`, 'success');
+      setRequestSuccess(`Signal transmitted. Position in pipeline: #${data.request.queuePosition}`);
+      addLog('QUEUE', `Created help request: "${data.request.topic}" [${category}]`, 'success');
       fetchMyRequests();
+      return true;
     } catch (err) {
       setRequestError(err.message);
       addLog('QUEUE', `Request creation failed: ${err.message}`, 'error');
+      return false;
     } finally {
       setRequestSubmitting(false);
     }
   };
 
   const handleCancelRequest = async (requestId) => {
-    if (!window.confirm('Are you sure you want to cancel this waiting request?')) return;
+    if (!window.confirm('Are you sure you want to cancel this waiting signal?')) return;
     try {
       const res = await fetch(`/api/requests/${requestId}/cancel`, {
         method: 'POST',
@@ -419,6 +436,27 @@ export default function App() {
     }
   };
 
+  const handleSubmitFeedback = async (requestId, { rating, comment }) => {
+    try {
+      const res = await fetch(`/api/requests/${requestId}/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ rating, comment }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || 'Failed to record session feedback.');
+      }
+      addLog('FEEDBACK', `Recorded session outcome feedback: ★ ${rating}/5`, 'success');
+      fetchMyRequests();
+      return true;
+    } catch (err) {
+      addLog('FEEDBACK', `Feedback failed: ${err.message}`, 'error');
+      throw err;
+    }
+  };
+
   const handleClaimRequest = async (requestId) => {
     setQueueActionError(null);
     try {
@@ -428,9 +466,9 @@ export default function App() {
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.message || 'Unable to claim request.');
+        throw new Error(data.message || 'Unable to claim signal.');
       }
-      addLog('QUEUE', `Claimed request: "${data.request.topic}"`, 'success');
+      addLog('QUEUE', `Claimed signal: "${data.request.topic}"`, 'success');
       fetchQueue();
     } catch (err) {
       setQueueActionError(err.message);
@@ -439,24 +477,50 @@ export default function App() {
     }
   };
 
-  const handleUpdateStatus = async (requestId, targetStatus) => {
+  const handleUpdateStatus = async (requestId, targetStatus, resolutionNotes) => {
     setQueueActionError(null);
     try {
+      const payload = { status: targetStatus };
+      if (resolutionNotes !== undefined) {
+        payload.resolutionNotes = resolutionNotes;
+      }
       const res = await fetch(`/api/requests/${requestId}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ status: targetStatus }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data.message || 'Failed to update request status.');
       }
-      addLog('QUEUE', `Request status updated to "${targetStatus}"`, 'success');
+      addLog('QUEUE', `Signal status updated to "${targetStatus}"`, 'success');
       fetchQueue();
+      return true;
     } catch (err) {
       setQueueActionError(err.message);
       addLog('QUEUE', `Status update error: ${err.message}`, 'error');
+      return false;
+    }
+  };
+
+  const handleToggleAvailability = async (isAvailable) => {
+    try {
+      const res = await fetch('/api/queue/availability', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ isAvailable }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || 'Failed to update availability.');
+      }
+      setCurrentUser(data.user);
+      addLog('MENTOR', `Availability set to ${isAvailable ? 'available' : 'away'}`, 'info');
+      fetchQueue();
+    } catch (err) {
+      setQueueActionError(err.message);
     }
   };
 
@@ -686,390 +750,33 @@ export default function App() {
               </div>
             </div>
           ) : currentUser.role === 'student' ? (
-            /* ----------------------------------------------------------------- */
-            /* STUDENT HELP DESK                                                 */
-            /* ----------------------------------------------------------------- */
-            <>
-              <div className="page-header">
-                <h1 className="page-heading">Student Help Desk</h1>
-                <p className="page-subheading">
-                  Submit doubt requests to receive one-on-one assistance from lab mentors. Track your real-time position in the FIFO queue below.
-                </p>
-              </div>
-
-              <div className="workspace-grid">
-                {/* Left Column: Active Tracker & Submit Request Form */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                  {/* Active Request Tracker */}
-                  {activeStudentRequest ? (
-                    <div className="active-tracker">
-                      <div
-                        className={`active-tracker-banner ${activeStudentRequest.status}`}
-                      >
-                        <span>
-                          {activeStudentRequest.status === 'waiting' &&
-                            `WAITING IN QUEUE — POSITION #${activeStudentRequest.queuePosition || 1}`}
-                          {activeStudentRequest.status === 'claimed' && 'CLAIMED BY MENTOR'}
-                          {activeStudentRequest.status === 'in_progress' && 'ACTIVE SESSION IN PROGRESS'}
-                        </span>
-                        {activeStudentRequest.status === 'waiting' && (
-                          <button
-                            type="button"
-                            className="btn btn-danger"
-                            onClick={() => handleCancelRequest(activeStudentRequest._id)}
-                          >
-                            Cancel Request
-                          </button>
-                        )}
-                      </div>
-
-                      <div className="active-tracker-content">
-                        <div className="tracker-title">{activeStudentRequest.topic}</div>
-                        <div className="tracker-desc">{activeStudentRequest.description}</div>
-
-                        {activeStudentRequest.codeSnippet && (
-                          <div>
-                            <div className="form-label" style={{ marginBottom: '6px' }}>
-                              Code / Error Details
-                            </div>
-                            <pre className="code-box">{activeStudentRequest.codeSnippet}</pre>
-                          </div>
-                        )}
-
-                        <div className="tracker-meta-bar">
-                          <div className="meta-item">
-                            <span className="meta-label">Submitted:</span>
-                            <span className="meta-value">
-                              {new Date(activeStudentRequest.createdAt).toLocaleTimeString()} ({formatDuration(activeStudentRequest.createdAt)} wait)
-                            </span>
-                          </div>
-
-                          {activeStudentRequest.mentor && (
-                            <div className="meta-item">
-                              <span className="meta-label">Assigned Mentor:</span>
-                              <span className="meta-value">
-                                {activeStudentRequest.mentor.name} ({activeStudentRequest.mentor.email})
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {/* Create Request Form */}
-                  <div className="section-card">
-                    <div className="section-card-header">
-                      <span className="section-card-title">
-                        {activeStudentRequest ? 'Submit Another Request' : 'Request Mentor Assistance'}
-                      </span>
-                    </div>
-
-                    <div className="section-card-body">
-                      {requestError && <div className="alert-banner error">{requestError}</div>}
-                      {requestSuccess && <div className="alert-banner success">{requestSuccess}</div>}
-
-                      <form onSubmit={handleCreateRequest} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                        <div className="form-group">
-                          <label className="form-label" htmlFor="req-topic">
-                            Topic / Category
-                          </label>
-                          <input
-                            id="req-topic"
-                            type="text"
-                            className="form-input"
-                            placeholder="e.g. Memory leak in Node.js event listener"
-                            required
-                            value={requestForm.topic}
-                            onChange={(e) => setRequestForm({ ...requestForm, topic: e.target.value })}
-                            disabled={requestSubmitting}
-                          />
-                          <span className="form-hint">Brief summary of the issue (2 to 100 characters)</span>
-                        </div>
-
-                        <div className="form-group">
-                          <label className="form-label" htmlFor="req-desc">
-                            Problem Description
-                          </label>
-                          <textarea
-                            id="req-desc"
-                            className="form-textarea"
-                            placeholder="Explain what is failing, expected behavior, and steps you have already tried..."
-                            required
-                            value={requestForm.description}
-                            onChange={(e) => setRequestForm({ ...requestForm, description: e.target.value })}
-                            disabled={requestSubmitting}
-                          />
-                          <span className="form-hint">Provide enough context for the mentor to understand the blocker</span>
-                        </div>
-
-                        <div className="form-group">
-                          <label className="form-label" htmlFor="req-code">
-                            Code Snippet / Terminal Output (Optional)
-                          </label>
-                          <textarea
-                            id="req-code"
-                            className="form-textarea font-mono"
-                            placeholder="Paste relevant snippet, error message, or stack trace here..."
-                            value={requestForm.codeSnippet}
-                            onChange={(e) => setRequestForm({ ...requestForm, codeSnippet: e.target.value })}
-                            disabled={requestSubmitting}
-                          />
-                        </div>
-
-                        <div style={{ marginTop: '4px' }}>
-                          <button type="submit" className="btn btn-primary" disabled={requestSubmitting}>
-                            {requestSubmitting ? 'Submitting to Queue...' : 'Submit Help Request'}
-                          </button>
-                        </div>
-                      </form>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Right Column: Resolution History */}
-                <div className="section-card">
-                  <div className="section-card-header">
-                    <span className="section-card-title">My Request History</span>
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      onClick={fetchMyRequests}
-                      disabled={myRequestsLoading}
-                    >
-                      {myRequestsLoading ? 'Updating...' : 'Refresh'}
-                    </button>
-                  </div>
-
-                  <div className="section-card-body" style={{ padding: 0 }}>
-                    {pastStudentRequests.length === 0 ? (
-                      <div className="empty-box" style={{ border: 'none', margin: '20px' }}>
-                        <div className="empty-box-title">No completed requests</div>
-                        <div className="empty-box-desc">
-                          Past resolved or cancelled doubt sessions will appear here for your reference.
-                        </div>
-                      </div>
-                    ) : (
-                      <div style={{ overflowX: 'auto' }}>
-                        <table className="history-table">
-                          <thead>
-                            <tr>
-                              <th>Status</th>
-                              <th>Topic</th>
-                              <th>Mentor</th>
-                              <th>Date</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {pastStudentRequests.map((req) => (
-                              <tr key={req._id}>
-                                <td>
-                                  <span className={`status-pill ${req.status}`}>{req.status}</span>
-                                </td>
-                                <td>
-                                  <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{req.topic}</div>
-                                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                    {req.description}
-                                  </div>
-                                </td>
-                                <td>
-                                  <span style={{ color: 'var(--text-secondary)' }}>
-                                    {req.mentor?.name || '—'}
-                                  </span>
-                                </td>
-                                <td>
-                                  <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>
-                                    {new Date(req.updatedAt).toLocaleDateString()}
-                                  </span>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </>
+            <StudentWorkspace
+              currentUser={currentUser}
+              myRequests={myRequests}
+              myRequestsLoading={myRequestsLoading}
+              fetchMyRequests={fetchMyRequests}
+              onCreateRequest={handleCreateRequest}
+              onCancelRequest={handleCancelRequest}
+              onSubmitFeedback={handleSubmitFeedback}
+              requestSubmitting={requestSubmitting}
+              requestError={requestError}
+              requestSuccess={requestSuccess}
+            />
           ) : (
-            /* ----------------------------------------------------------------- */
-            /* MENTOR QUEUE DESK                                                 */
-            /* ----------------------------------------------------------------- */
-            <>
-              <div className="page-header">
-                <h1 className="page-heading">Mentor Queue Desk</h1>
-                <p className="page-subheading">
-                  Students waiting for lab guidance appear in FIFO queue order. Claim a waiting ticket to open a session and mark it resolved upon completion.
-                </p>
-              </div>
-
-              {queueActionError && (
-                <div className="alert-banner error" style={{ marginBottom: '20px' }}>
-                  {queueActionError}
-                </div>
-              )}
-
-              <div className="workspace-grid equal">
-                {/* Left Column: Waiting Queue (FIFO) */}
-                <div className="section-card">
-                  <div className="section-card-header">
-                    <span className="section-card-title">
-                      Waiting Queue ({waitingQueue.length})
-                    </span>
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      onClick={fetchQueue}
-                      disabled={mentorQueueLoading}
-                    >
-                      {mentorQueueLoading ? 'Refreshing...' : 'Re-sync'}
-                    </button>
-                  </div>
-
-                  <div className="section-card-body">
-                    {waitingQueue.length === 0 ? (
-                      <div className="empty-box">
-                        <div className="empty-box-title">Queue is clear</div>
-                        <div className="empty-box-desc">
-                          No students are currently waiting for assistance. New requests will appear automatically.
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="queue-list">
-                        {waitingQueue.map((req, idx) => (
-                          <div key={req._id} className="queue-item">
-                            <div className="queue-item-header">
-                              <div>
-                                <span className="status-pill waiting" style={{ marginRight: '8px' }}>
-                                  #{req.queuePosition || idx + 1} in queue
-                                </span>
-                                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                                  Submitted by {req.student?.name || 'Student'} ({new Date(req.createdAt).toLocaleTimeString()}) · {formatDuration(req.createdAt)} wait
-                                </span>
-                              </div>
-                              <button
-                                type="button"
-                                className="btn btn-primary"
-                                onClick={() => handleClaimRequest(req._id)}
-                              >
-                                Claim Request
-                              </button>
-                            </div>
-
-                            <div className="queue-item-title">{req.topic}</div>
-                            <div className="queue-item-desc">{req.description}</div>
-
-                            {req.codeSnippet && (
-                              <pre className="code-box">{req.codeSnippet}</pre>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Right Column: Assigned Sessions & Colleague Activity */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                  {/* My Active Sessions */}
-                  <div className="section-card">
-                    <div className="section-card-header">
-                      <span className="section-card-title">
-                        My Active Sessions ({myAssignedRequests.length})
-                      </span>
-                    </div>
-
-                    <div className="section-card-body">
-                      {myAssignedRequests.length === 0 ? (
-                        <div className="empty-box">
-                          <div className="empty-box-title">No assigned sessions</div>
-                          <div className="empty-box-desc">
-                            Claim a request from the waiting queue to begin assisting a student.
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="queue-list">
-                          {myAssignedRequests.map((req) => (
-                            <div key={req._id} className="queue-item" style={{ borderColor: 'var(--border-focus)' }}>
-                              <div className="queue-item-header">
-                                <div>
-                                  <span className={`status-pill ${req.status}`} style={{ marginRight: '8px' }}>
-                                    {req.status === 'in_progress' ? 'In Session' : 'Claimed'}
-                                  </span>
-                                  <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                                    {req.student?.name} ({req.student?.email}) · {formatDuration(req.updatedAt || req.createdAt)}
-                                  </span>
-                                </div>
-
-                                <div>
-                                  {req.status === 'claimed' && (
-                                    <button
-                                      type="button"
-                                      className="btn btn-primary"
-                                      onClick={() => handleUpdateStatus(req._id, 'in_progress')}
-                                    >
-                                      Start Session
-                                    </button>
-                                  )}
-                                  {req.status === 'in_progress' && (
-                                    <button
-                                      type="button"
-                                      className="btn btn-primary"
-                                      onClick={() => handleUpdateStatus(req._id, 'resolved')}
-                                    >
-                                      Mark Resolved
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-
-                              <div className="queue-item-title">{req.topic}</div>
-                              <div className="queue-item-desc">{req.description}</div>
-
-                              {req.codeSnippet && (
-                                <pre className="code-box">{req.codeSnippet}</pre>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Other Mentors' Active Sessions */}
-                  {otherActiveRequests.length > 0 && (
-                    <div className="section-card">
-                      <div className="section-card-header">
-                        <span className="section-card-title" style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                          Sessions Handled by Colleagues ({otherActiveRequests.length})
-                        </span>
-                      </div>
-
-                      <div className="section-card-body">
-                        <div className="queue-list">
-                          {otherActiveRequests.map((req) => (
-                            <div key={req._id} className="queue-item" style={{ opacity: 0.85 }}>
-                              <div className="queue-item-header">
-                                <span className={`status-pill ${req.status}`}>
-                                  {req.status === 'in_progress' ? 'In Session' : 'Claimed'}
-                                </span>
-                                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                                  Mentor: {req.mentor?.name || 'Colleague'}
-                                </span>
-                              </div>
-                              <div className="queue-item-title" style={{ fontSize: '13px' }}>
-                                {req.topic}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </>
+            <MentorWorkspace
+              currentUser={currentUser}
+              mentorQueue={mentorQueue}
+              mentorQueueLoading={mentorQueueLoading}
+              fetchQueue={() => {
+                fetchQueue();
+                fetchQueueIntelligence();
+              }}
+              onClaimRequest={handleClaimRequest}
+              onUpdateStatus={handleUpdateStatus}
+              onToggleAvailability={handleToggleAvailability}
+              queueActionError={queueActionError}
+              queueIntelligence={queueIntelligence}
+            />
           )
         ) : (
           /* ----------------------------------------------------------------- */
