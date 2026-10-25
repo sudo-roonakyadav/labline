@@ -15,6 +15,7 @@ export const config = {
   nodeEnv: process.env.NODE_ENV || 'development',
   clientOrigin: process.env.CLIENT_ORIGIN || 'http://localhost:5173',
   mongodbUri: process.env.MONGODB_URI,
+  jwtSecret: process.env.JWT_SECRET,
 };
 
 export function validateConfig() {
@@ -38,6 +39,12 @@ export function validateConfig() {
     !process.env.MONGODB_URI.startsWith('mongodb+srv://')
   ) {
     errors.push(`MONGODB_URI must start with "mongodb://" or "mongodb+srv://".`);
+  }
+
+  if (!process.env.JWT_SECRET) {
+    missing.push('JWT_SECRET');
+  } else if (process.env.JWT_SECRET.length < 32) {
+    errors.push('JWT_SECRET must be at least 32 characters long for cryptographic security.');
   }
 
   if (missing.length > 0 || errors.length > 0) {

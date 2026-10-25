@@ -45,3 +45,15 @@ export function getIO() {
   }
   return ioInstance;
 }
+
+// Server-originated signal emitted after successful DB mutations.
+// Never broadcasts private ticket data.
+export function emitQueueChange(action = 'update') {
+  if (ioInstance) {
+    ioInstance.emit('queue:changed', {
+      action,
+      timestamp: new Date().toISOString(),
+    });
+  }
+}
+
