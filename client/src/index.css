@@ -2574,3 +2574,125 @@ body {
   from { transform: translateY(12px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
 }
+
+/* ==========================================================================
+   INTERACTIVE DOUBT CONVERSATION & LIVE SESSIONS STYLES
+   ========================================================================== */
+
+/* Attention & Action Badges */
+.attention-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background-color: var(--color-amber-bg);
+  border: 1px solid var(--color-amber-border);
+  color: var(--color-amber);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: var(--radius-xs);
+  text-transform: uppercase;
+}
+
+.attention-pill.urgent {
+  background-color: var(--color-red-bg);
+  border-color: var(--color-red-border);
+  color: var(--color-red);
+}
+
+/* Live Sessions Split Layout */
+.live-sessions-layout {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 960px) {
+  .live-sessions-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Session Item Card (Selector in Mentor Desk) */
+.session-item-card {
+  background-color: var(--color-ink);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xs);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  width: 100%;
+}
+
+.session-item-card:hover {
+  border-color: var(--color-border-focus);
+}
+
+.session-item-card.selected {
+  border-color: var(--color-signal);
+  background-color: var(--color-charcoal-light);
+}
+
+.session-item-card.action-needed {
+  border-left: 3px solid var(--color-amber);
+}
+
+/* Conversation Thread & Bubbles */
+.conversation-thread {
+  background-color: var(--color-ink);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xs);
+  padding: 16px;
+  max-height: 420px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.message-bubble {
+  max-width: 85%;
+  border-radius: var(--radius-xs);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.message-bubble.mentor {
+  align-self: flex-start;
+  background-color: var(--color-charcoal);
+  border: 1px solid var(--color-signal-border);
+}
+
+.message-bubble.student {
+  align-self: flex-end;
+  background-color: var(--color-ink-elevated);
+  border: 1px solid var(--color-border);
+}
+
+@media (max-width: 600px) {
+  .message-bubble {
+    max-width: 95%;
+  }
+
+  .workspace-subnav {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .subnav-tabs {
+    flex-wrap: wrap;
+  }
+
+  .telemetry-strip {
+    width: 100%;
+    justify-content: space-between;
+  }
+}

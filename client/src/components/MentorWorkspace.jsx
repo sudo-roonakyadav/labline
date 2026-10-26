@@ -20,6 +20,12 @@ function formatDuration(dateString) {
   return `${hours}h ${remainingMins}m`;
 }
 
+function formatTime(dateString) {
+  if (!dateString) return '';
+  const d = new Date(dateString);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
 export default function MentorWorkspace({
   currentUser,
   mentorQueue = [],
@@ -28,26 +34,111 @@ export default function MentorWorkspace({
   onClaimRequest,
   onUpdateStatus,
   onToggleAvailability,
+  onPostMessage,
   queueActionError = null,
   queueIntelligence = null,
 }) {
-  // Navigation View: 'live_desk' | 'session_history'
-  const [viewTab, setViewTab] = useState('live_desk');
+  // Navigation Tabs: 'waiting_requests' | 'live_sessions' | 'session_history'
+  const [viewTab, setViewTab] = useState('waiting_requests');
 
-  // Filter State
+  // Filter & Search for Waiting Requests
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Resolution Modal State
-  const [resolvingRequest, setResolvingRequest] = useState(null);
-  const [resolutionNotes, setResolutionNotes] = useState('');
-  const [isSubmittingResolution, setIsSubmittingResolution] = useState(false);
-  const [resolutionError, setResolutionError] = useState(null);
+  // Active Live Session Selection & Reply Composer
+  const [selectedSessionId, setSelectedSessionId] = useState(null);
+  const [replyText, setReplyText] = useState('');
+  const [replySubmitting, setReplySubmitting] = useState(false);
+  const [replyError, setReplyError] = useState(null);
 
   // History State
   const [historyList, setHistoryList] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState(null);
+  const [historyCategory, setHistoryCategory] = useState('all');
+  const [historySearch, setHistorySearch] = useState('');
+
+  const currentUserId = currentUser?._id || currentUser?.id;
+
+  // 1. Segregate Waiting Requests (strict FIFO)
+  const waitingRequests = useMemo(() => {
+    return mentorQueue.filter((r) => r.status === 'waiting');
+  }, [mentorQueue]);
+
+  // 2. Segregate My Assigned Live Sessions
+  const myAssignedRequests = useMemo(() => {
+    return mentorQueue.filter((r) => {
+      const mentorId = r.mentor?._id || r.mentor?.id || r.mentor;
+      return (
+        mentorId &&
+        currentUserId &&
+        mentorId.toString() === currentUserId.toString() &&
+        ['claimed', 'in_progress', 'awaiting_mentor', 'awaiting_student'].includes(r.status)
+      );
+    });
+  }, [mentorQueue, currentUserId]);
+
+  // Count of assigned requests where student sent follow-up needing mentor action
+  const actionNeededCount = useMemo(() => {
+    return myAssignedRequests.filter((r) => r.status === 'awaiting_mentor').length;
+  }, [myAssignedRequests]);
+
+  // 3. Colleague Sessions for Floor Awareness
+  const otherActiveRequests = useMemo(() => {
+    return mentorQueue.filter((r) => {
+      const mentorId = r.mentor?._id || r.mentor?.id || r.mentor;
+      return (
+        mentorId &&
+        currentUserId &&
+        mentorId.toString() !== currentUserId.toString() &&
+        ['claimed', 'in_progress', 'awaiting_mentor', 'awaiting_student'].includes(r.status)
+      );
+    });
+  }, [mentorQueue, currentUserId]);
+
+  // Active Session Selected for Chat
+  const activeSession = useMemo(() => {
+    if (myAssignedRequests.length === 0) return null;
+    if (selectedSessionId) {
+      const found = myAssignedRequests.find((r) => r._id === selectedSessionId);
+      if (found) return found;
+    }
+    // Default to the first request needing action, or first assigned
+    const urgent = myAssignedRequests.find((r) => r.status === 'awaiting_mentor');
+    return urgent || myAssignedRequests[0];
+  }, [myAssignedRequests, selectedSessionId]);
+
+  // Filtered Waiting Queue
+  const filteredWaitingQueue = useMemo(() => {
+    return waitingRequests.filter((req) => {
+      const matchesCategory =
+        selectedCategory === 'all' || req.category === selectedCategory;
+      const searchLower = searchQuery.toLowerCase().trim();
+      const matchesSearch =
+        !searchLower ||
+        req.topic?.toLowerCase().includes(searchLower) ||
+        req.description?.toLowerCase().includes(searchLower) ||
+        req.student?.name?.toLowerCase().includes(searchLower);
+      return matchesCategory && matchesSearch;
+    });
+  }, [waitingRequests, selectedCategory, searchQuery]);
+
+  // Filtered History
+  const filteredHistory = useMemo(() => {
+    return historyList.filter((item) => {
+      const matchesCategory =
+        historyCategory === 'all' || item.category === historyCategory;
+      const searchLower = historySearch.toLowerCase().trim();
+      const matchesSearch =
+        !searchLower ||
+        item.topic?.toLowerCase().includes(searchLower) ||
+        item.description?.toLowerCase().includes(searchLower) ||
+        item.student?.name?.toLowerCase().includes(searchLower) ||
+        item.resolutionNotes?.toLowerCase().includes(searchLower) ||
+        item.feedback?.comment?.toLowerCase().includes(searchLower);
+      return matchesCategory && matchesSearch;
+    });
+  }, [historyList, historyCategory, historySearch]);
 
   const fetchHistory = async () => {
     setHistoryLoading(true);
@@ -73,84 +164,31 @@ export default function MentorWorkspace({
     }
   }, [viewTab]);
 
-  // Segregate Queue Elements
-  const waitingRequests = useMemo(() => {
-    return mentorQueue.filter((r) => r.status === 'waiting');
-  }, [mentorQueue]);
-
-  const currentUserId = currentUser?._id || currentUser?.id;
-
-  const myAssignedRequests = useMemo(() => {
-    return mentorQueue.filter((r) => {
-      const mentorId = r.mentor?._id || r.mentor?.id || r.mentor;
-      return (
-        mentorId &&
-        currentUserId &&
-        mentorId.toString() === currentUserId.toString() &&
-        ['claimed', 'in_progress'].includes(r.status)
-      );
-    });
-  }, [mentorQueue, currentUserId]);
-
-  const otherActiveRequests = useMemo(() => {
-    return mentorQueue.filter((r) => {
-      const mentorId = r.mentor?._id || r.mentor?.id || r.mentor;
-      return (
-        mentorId &&
-        currentUserId &&
-        mentorId.toString() !== currentUserId.toString() &&
-        ['claimed', 'in_progress'].includes(r.status)
-      );
-    });
-  }, [mentorQueue, currentUserId]);
-
-  // Filtered Waiting Queue (FIFO is strictly maintained)
-  const filteredWaitingQueue = useMemo(() => {
-    return waitingRequests.filter((req) => {
-      const matchesCategory =
-        selectedCategory === 'all' || req.category === selectedCategory;
-      const searchLower = searchQuery.toLowerCase().trim();
-      const matchesSearch =
-        !searchLower ||
-        req.topic?.toLowerCase().includes(searchLower) ||
-        req.description?.toLowerCase().includes(searchLower) ||
-        req.student?.name?.toLowerCase().includes(searchLower);
-      return matchesCategory && matchesSearch;
-    });
-  }, [waitingRequests, selectedCategory, searchQuery]);
-
-  const handleOpenResolutionModal = (req) => {
-    setResolvingRequest(req);
-    setResolutionNotes('');
-    setResolutionError(null);
-  };
-
-  const handleCloseResolutionModal = () => {
-    setResolvingRequest(null);
-    setResolutionNotes('');
-    setResolutionError(null);
-  };
-
-  const handleConfirmResolution = async (e) => {
-    e.preventDefault();
-    if (!resolvingRequest) return;
-    setIsSubmittingResolution(true);
-    setResolutionError(null);
-
+  const handleClaimAndOpen = async (requestId) => {
     try {
-      const ok = await onUpdateStatus(
-        resolvingRequest._id,
-        'resolved',
-        resolutionNotes.trim()
-      );
+      const ok = await onClaimRequest(requestId);
       if (ok) {
-        handleCloseResolutionModal();
-        fetchQueue();
+        setSelectedSessionId(requestId);
+        setViewTab('live_sessions');
       }
     } catch (err) {
-      setResolutionError(err.message || 'Failed to resolve request.');
+      // Handled in parent
+    }
+  };
+
+  const handlePostReply = async (e) => {
+    e.preventDefault();
+    if (!activeSession || !replyText.trim() || !onPostMessage) return;
+    setReplySubmitting(true);
+    setReplyError(null);
+
+    try {
+      await onPostMessage(activeSession._id, replyText.trim());
+      setReplyText('');
+    } catch (err) {
+      setReplyError(err.message || 'Failed to post reply.');
     } finally {
-      setIsSubmittingResolution(false);
+      setReplySubmitting(false);
     }
   };
 
@@ -192,10 +230,22 @@ export default function MentorWorkspace({
         <div className="subnav-tabs">
           <button
             type="button"
-            className={`subnav-tab-btn ${viewTab === 'live_desk' ? 'active' : ''}`}
-            onClick={() => setViewTab('live_desk')}
+            className={`subnav-tab-btn ${viewTab === 'waiting_requests' ? 'active' : ''}`}
+            onClick={() => setViewTab('waiting_requests')}
           >
-            Live Desk ({waitingRequests.length + myAssignedRequests.length})
+            Waiting Requests ({waitingRequests.length})
+          </button>
+          <button
+            type="button"
+            className={`subnav-tab-btn ${viewTab === 'live_sessions' ? 'active' : ''}`}
+            onClick={() => setViewTab('live_sessions')}
+          >
+            Live Sessions ({myAssignedRequests.length})
+            {actionNeededCount > 0 && (
+              <span className="attention-pill" style={{ marginLeft: 8 }}>
+                {actionNeededCount} Action Needed
+              </span>
+            )}
           </button>
           <button
             type="button"
@@ -214,8 +264,13 @@ export default function MentorWorkspace({
           </div>
           <div className="telemetry-divider" />
           <div className="telemetry-metric">
+            <span className="telemetry-metric-lbl">In Session</span>
+            <span className="telemetry-metric-val signal">{myAssignedRequests.length}</span>
+          </div>
+          <div className="telemetry-divider" />
+          <div className="telemetry-metric">
             <span className="telemetry-metric-lbl">Active Mentors</span>
-            <span className="telemetry-metric-val signal">
+            <span className="telemetry-metric-val">
               {queueIntelligence?.availableMentors !== undefined ? queueIntelligence.availableMentors : 1}
             </span>
           </div>
@@ -237,235 +292,450 @@ export default function MentorWorkspace({
         </div>
       )}
 
-      {viewTab === 'live_desk' ? (
-        <div className="workspace-grid equal">
-          {/* Left Column: Waiting Queue (FIFO) with Category Filtering */}
-          <div className="section-card">
-            <div className="section-card-header">
-              <span className="section-card-title">
-                Waiting Requests ({filteredWaitingQueue.length} / {waitingRequests.length})
-              </span>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={fetchQueue}
-                disabled={mentorQueueLoading}
-              >
-                {mentorQueueLoading ? 'Syncing...' : 'Sync'}
-              </button>
+      {/* ----------------------------------------------------------------- */}
+      {/* SECTION 1: WAITING REQUESTS (FIFO QUEUE)                          */}
+      {/* ----------------------------------------------------------------- */}
+      {viewTab === 'waiting_requests' && (
+        <div className="section-card">
+          <div className="section-card-header">
+            <span className="section-card-title">
+              Waiting Requests ({filteredWaitingQueue.length} / {waitingRequests.length})
+            </span>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={fetchQueue}
+              disabled={mentorQueueLoading}
+            >
+              {mentorQueueLoading ? 'Syncing...' : 'Sync'}
+            </button>
+          </div>
+
+          <div className="section-card-body">
+            {/* Category Filter & Search */}
+            <div className="filter-bar">
+              <div className="filter-pills">
+                <button
+                  type="button"
+                  className={`filter-pill ${selectedCategory === 'all' ? 'active' : ''}`}
+                  onClick={() => setSelectedCategory('all')}
+                >
+                  All ({waitingRequests.length})
+                </button>
+                {CATEGORIES.map((cat) => {
+                  const count = waitingRequests.filter((r) => r.category === cat.id).length;
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      className={`filter-pill ${selectedCategory === cat.id ? 'active' : ''}`}
+                      onClick={() => setSelectedCategory(cat.id)}
+                    >
+                      {cat.label} {count > 0 ? `(${count})` : ''}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="search-input-wrap">
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="search-icon"
+                  aria-hidden="true"
+                  style={{ color: 'var(--color-neutral-muted)' }}
+                >
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+                <input
+                  type="text"
+                  className="search-input"
+                  placeholder="Search requests..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
             </div>
 
-            <div className="section-card-body">
-              {/* Category Filter & Search */}
-              <div className="filter-bar">
-                <div className="filter-pills">
+            {filteredWaitingQueue.length === 0 ? (
+              <div className="empty-box">
+                <div className="empty-box-title">Queue is clear</div>
+                <div className="empty-box-desc">
+                  {selectedCategory !== 'all'
+                    ? `No waiting requests in category "${selectedCategory}".`
+                    : 'No students are currently waiting for assistance. Incoming requests will appear automatically in real-time.'}
+                </div>
+              </div>
+            ) : (
+              <div className="queue-list">
+                {filteredWaitingQueue.map((req, idx) => (
+                  <div key={req._id} className="queue-item">
+                    <div className="queue-item-header">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span className="status-pill waiting">
+                          #{req.queuePosition || idx + 1} IN FIFO
+                        </span>
+                        <span className={`category-pill ${req.category}`}>
+                          {req.category}
+                        </span>
+                        <span style={{ fontSize: 12, color: 'var(--color-neutral-muted)' }}>
+                          {req.student?.name || 'Student'} · {formatDuration(req.createdAt)} wait
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        onClick={() => handleClaimAndOpen(req._id)}
+                      >
+                        Accept request
+                      </button>
+                    </div>
+
+                    <div className="queue-item-title">{req.topic}</div>
+                    <div className="queue-item-desc">{req.description}</div>
+
+                    {req.codeSnippet && (
+                      <pre className="code-box">{req.codeSnippet}</pre>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ----------------------------------------------------------------- */}
+      {/* SECTION 2: LIVE SESSIONS (ACTIVE CONVERSATIONS)                   */}
+      {/* ----------------------------------------------------------------- */}
+      {viewTab === 'live_sessions' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+          {myAssignedRequests.length === 0 ? (
+            <div className="section-card">
+              <div className="section-card-header">
+                <span className="section-card-title">Live Sessions</span>
+              </div>
+              <div className="section-card-body">
+                <div className="empty-box">
+                  <div className="empty-box-title">No active sessions</div>
+                  <div className="empty-box-desc">
+                    You do not have any claimed requests in progress. Accept an incoming doubt from Waiting Requests to begin assisting a student.
+                  </div>
                   <button
                     type="button"
-                    className={`filter-pill ${selectedCategory === 'all' ? 'active' : ''}`}
-                    onClick={() => setSelectedCategory('all')}
+                    className="btn btn-primary"
+                    style={{ marginTop: 12 }}
+                    onClick={() => setViewTab('waiting_requests')}
                   >
-                    All ({waitingRequests.length})
+                    View Waiting Requests ({waitingRequests.length})
                   </button>
-                  {CATEGORIES.map((cat) => {
-                    const count = waitingRequests.filter((r) => r.category === cat.id).length;
-                    return (
-                      <button
-                        key={cat.id}
-                        type="button"
-                        className={`filter-pill ${selectedCategory === cat.id ? 'active' : ''}`}
-                        onClick={() => setSelectedCategory(cat.id)}
-                      >
-                        {cat.label} {count > 0 ? `(${count})` : ''}
-                      </button>
-                    );
-                  })}
                 </div>
+              </div>
+            </div>
+          ) : (
+            <div className="live-sessions-layout">
+              {/* Left Column: Assigned Sessions Selector List */}
+              <div className="section-card">
+                <div className="section-card-header">
+                  <span className="section-card-title">
+                    My Active Sessions ({myAssignedRequests.length})
+                  </span>
+                </div>
+                <div className="section-card-body" style={{ padding: 14 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {myAssignedRequests.map((req) => {
+                      const isSelected = activeSession?._id === req._id;
+                      const isAwaitingMentor = req.status === 'awaiting_mentor';
+                      return (
+                        <button
+                          key={req._id}
+                          type="button"
+                          className={`session-item-card ${isSelected ? 'selected' : ''} ${isAwaitingMentor ? 'action-needed' : ''}`}
+                          onClick={() => {
+                            setSelectedSessionId(req._id);
+                            setReplyError(null);
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, width: '100%' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span className={`category-pill ${req.category}`}>{req.category}</span>
+                              {isAwaitingMentor ? (
+                                <span className="attention-pill urgent">Follow-Up</span>
+                              ) : (
+                                <span className={`status-pill ${req.status}`}>
+                                  {req.status === 'awaiting_student'
+                                    ? 'Awaiting Student'
+                                    : req.status === 'in_progress'
+                                    ? 'In Session'
+                                    : 'Claimed'}
+                                </span>
+                              )}
+                            </div>
+                            <span style={{ fontSize: 11, color: 'var(--color-neutral-muted)', fontFamily: 'var(--font-mono)' }}>
+                              {formatDuration(req.claimedAt || req.createdAt)}
+                            </span>
+                          </div>
 
-                <div className="search-input-wrap">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="search-icon" aria-hidden="true" style={{ color: 'var(--color-neutral-muted)' }}>
-                    <circle cx="11" cy="11" r="8" />
-                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                  </svg>
-                  <input
-                    type="text"
-                    className="search-input"
-                    placeholder="Search requests..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
+                          <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--color-warm-white)', textAlign: 'left', lineHeight: 1.3 }}>
+                            {req.topic}
+                          </div>
+
+                          <div style={{ fontSize: 12, color: 'var(--color-neutral)', textAlign: 'left' }}>
+                            Student: {req.student?.name}
+                          </div>
+
+                          {isAwaitingMentor && (
+                            <div
+                              className="font-mono"
+                              style={{
+                                fontSize: 10,
+                                color: 'var(--color-amber)',
+                                letterSpacing: '0.04em',
+                                marginTop: 2,
+                                textAlign: 'left',
+                              }}
+                            >
+                              [ACTION NEEDED] Student sent follow-up
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
 
-              {filteredWaitingQueue.length === 0 ? (
-                <div className="empty-box">
-                  <div className="empty-box-title">Queue is clear</div>
-                  <div className="empty-box-desc">
-                    {selectedCategory !== 'all'
-                      ? `No waiting requests in category "${selectedCategory}".`
-                      : 'No students are currently waiting for assistance. Incoming requests will appear automatically in real-time.'}
+              {/* Right Column: Active Conversation & Detail Panel */}
+              {activeSession && (
+                <div className="section-card">
+                  <div className="section-card-header">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      <span className="section-card-title">{activeSession.topic}</span>
+                      <span className={`category-pill ${activeSession.category}`}>{activeSession.category}</span>
+                      {activeSession.status === 'awaiting_mentor' && (
+                        <span className="attention-pill urgent">
+                          [ACTION NEEDED] Student sent follow-up
+                        </span>
+                      )}
+                    </div>
+                    <span style={{ fontSize: 11, color: 'var(--color-neutral-muted)', fontFamily: 'var(--font-mono)' }}>
+                      Elapsed: {formatDuration(activeSession.claimedAt || activeSession.createdAt)}
+                    </span>
+                  </div>
+
+                  <div className="section-card-body">
+                    {/* Guidance Notice Banner */}
+                    <div
+                      style={{
+                        backgroundColor: 'var(--color-ink-elevated)',
+                        border: '1px solid var(--color-border)',
+                        borderRadius: 'var(--radius-xs)',
+                        padding: '10px 14px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        fontSize: 12,
+                        color: 'var(--color-neutral)',
+                      }}
+                    >
+                      <span>
+                        Student: <strong style={{ color: 'var(--color-warm-white)' }}>{activeSession.student?.name}</strong> ({activeSession.student?.email})
+                      </span>
+                      <span className="font-mono" style={{ fontSize: 11, color: 'var(--color-signal)' }}>
+                        Sessions are closed and rated directly by the student once solved.
+                      </span>
+                    </div>
+
+                    {/* Original Problem Description & Code */}
+                    <div style={{ backgroundColor: 'var(--color-charcoal-light)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-xs)', padding: 14 }}>
+                      <div className="form-label" style={{ fontSize: 10, marginBottom: 4 }}>
+                        STUDENT DOUBT DESCRIPTION
+                      </div>
+                      <p style={{ fontSize: 13, color: 'var(--color-warm-white)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+                        {activeSession.description}
+                      </p>
+
+                      {activeSession.codeSnippet && (
+                        <div style={{ marginTop: 10 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                            <span className="form-label" style={{ fontSize: 10 }}>STUDENT CODE / TERMINAL SNIPPET</span>
+                            <button
+                              type="button"
+                              className="btn btn-secondary"
+                              style={{ padding: '2px 8px', fontSize: 11 }}
+                              onClick={() => navigator.clipboard?.writeText(activeSession.codeSnippet)}
+                            >
+                              Copy
+                            </button>
+                          </div>
+                          <pre className="code-box" style={{ fontSize: 12, maxHeight: 160 }}>{activeSession.codeSnippet}</pre>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Conversation History Area */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span className="form-label" style={{ color: 'var(--color-warm-white)', fontWeight: 700 }}>
+                          Conversation History ({activeSession.messages?.length || 0})
+                        </span>
+                        <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--color-neutral-muted)' }}>
+                          Live Synchronized
+                        </span>
+                      </div>
+
+                      <div className="conversation-thread">
+                        {(!activeSession.messages || activeSession.messages.length === 0) ? (
+                          <div style={{ textAlign: 'center', padding: '28px 16px', color: 'var(--color-neutral)' }}>
+                            <p style={{ fontSize: 13, marginBottom: 4 }}>
+                              You accepted this request.
+                            </p>
+                            <p style={{ fontSize: 12, color: 'var(--color-neutral-muted)' }}>
+                              Post an initial reply below with your diagnosis, guidance, or questions to help the student.
+                            </p>
+                          </div>
+                        ) : (
+                          activeSession.messages.map((msg, idx) => {
+                            const isMentor = msg.senderRole === 'mentor';
+                            return (
+                              <div
+                                key={msg._id || idx}
+                                className={`message-bubble ${isMentor ? 'mentor' : 'student'}`}
+                                style={{
+                                  alignSelf: isMentor ? 'flex-end' : 'flex-start',
+                                  maxWidth: '85%',
+                                  backgroundColor: isMentor ? 'var(--color-charcoal)' : 'var(--color-ink-elevated)',
+                                  border: isMentor ? '1px solid var(--color-signal-border)' : '1px solid var(--color-border)',
+                                  borderRadius: 'var(--radius-xs)',
+                                  padding: '12px 14px',
+                                }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>
+                                  <span
+                                    style={{
+                                      fontSize: 10,
+                                      fontFamily: 'var(--font-mono)',
+                                      fontWeight: 700,
+                                      letterSpacing: '0.06em',
+                                      color: isMentor ? 'var(--color-signal)' : 'var(--color-active-blue)',
+                                    }}
+                                  >
+                                    {isMentor ? `YOU (MENTOR) // ${msg.senderName || currentUser?.name || 'Mentor'}` : `STUDENT // ${msg.senderName || activeSession.student?.name || 'Student'}`}
+                                  </span>
+                                  <span style={{ fontSize: 10, color: 'var(--color-neutral-muted)', fontFamily: 'var(--font-mono)' }}>
+                                    {formatTime(msg.createdAt)}
+                                  </span>
+                                </div>
+                                <p style={{ fontSize: 13, color: 'var(--color-warm-white)', lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                  {msg.content}
+                                </p>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Post Reply Composer */}
+                    <form onSubmit={handlePostReply} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      <div className="form-group">
+                        <label className="form-label" htmlFor="mentor-reply-input">
+                          Post Reply to Student
+                        </label>
+                        <textarea
+                          id="mentor-reply-input"
+                          className="form-textarea"
+                          style={{ minHeight: 90 }}
+                          placeholder="Type your explanation, diagnostic hints, or solution here to guide the student..."
+                          value={replyText}
+                          onChange={(e) => setReplyText(e.target.value)}
+                          maxLength={2000}
+                          disabled={replySubmitting}
+                        />
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span className="form-hint">
+                            {replyText.length} / 2000 characters. Posting keeps the session active for student testing.
+                          </span>
+                          <span style={{ fontSize: 11, color: 'var(--color-neutral-muted)' }}>
+                            Press Post reply to update student in real time.
+                          </span>
+                        </div>
+                      </div>
+
+                      {replyError && <div className="alert-banner error">{replyError}</div>}
+
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                        <button
+                          type="submit"
+                          className="btn btn-primary"
+                          disabled={replySubmitting || !replyText.trim()}
+                        >
+                          {replySubmitting ? 'Posting reply...' : 'Post reply'}
+                        </button>
+                      </div>
+                    </form>
                   </div>
                 </div>
-              ) : (
+              )}
+            </div>
+          )}
+
+          {/* Other Mentors' Active Sessions (Floor Activity) */}
+          {otherActiveRequests.length > 0 && (
+            <div className="section-card">
+              <div className="section-card-header">
+                <span className="section-card-title" style={{ fontSize: 13, color: 'var(--color-neutral)' }}>
+                  Colleague Sessions on Floor ({otherActiveRequests.length})
+                </span>
+              </div>
+              <div className="section-card-body">
                 <div className="queue-list">
-                  {filteredWaitingQueue.map((req, idx) => (
-                    <div key={req._id} className="queue-item">
+                  {otherActiveRequests.map((req) => (
+                    <div key={req._id} className="queue-item" style={{ opacity: 0.85, padding: 14 }}>
                       <div className="queue-item-header">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                          <span className="status-pill waiting">
-                            #{req.queuePosition || idx + 1} IN FIFO
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span className={`status-pill ${req.status}`}>
+                            {req.status === 'in_progress' ? 'In Session' : 'Claimed'}
                           </span>
                           <span className={`category-pill ${req.category}`}>
                             {req.category}
                           </span>
                           <span style={{ fontSize: 12, color: 'var(--color-neutral-muted)' }}>
-                            {req.student?.name || 'Student'} · {formatDuration(req.createdAt)} wait
+                            Mentor: {req.mentor?.name || 'Colleague'}
                           </span>
                         </div>
-                        <button
-                          type="button"
-                          className="btn btn-primary"
-                          onClick={() => onClaimRequest(req._id)}
-                        >
-                          Accept request
-                        </button>
+                        <span style={{ fontSize: 11, color: 'var(--color-neutral-muted)', fontFamily: 'var(--font-mono)' }}>
+                          {formatDuration(req.inProgressAt || req.claimedAt)}
+                        </span>
                       </div>
-
-                      <div className="queue-item-title">{req.topic}</div>
-                      <div className="queue-item-desc">{req.description}</div>
-
-                      {req.codeSnippet && (
-                        <pre className="code-box">{req.codeSnippet}</pre>
-                      )}
+                      <div className="queue-item-title" style={{ fontSize: 13 }}>
+                        {req.topic}
+                      </div>
                     </div>
                   ))}
                 </div>
-              )}
-            </div>
-          </div>
-
-          {/* Right Column: Assigned Sessions & Floor Activity */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-            {/* My Active Sessions */}
-            <div className="section-card">
-              <div className="section-card-header">
-                <span className="section-card-title">
-                  My Active Sessions ({myAssignedRequests.length})
-                </span>
-              </div>
-
-              <div className="section-card-body">
-                {myAssignedRequests.length === 0 ? (
-                  <div className="empty-box">
-                    <div className="empty-box-title">No assigned sessions</div>
-                    <div className="empty-box-desc">
-                      Claim a signal from the waiting queue to begin assisting a student with 1:1 guidance.
-                    </div>
-                  </div>
-                ) : (
-                  <div className="queue-list">
-                    {myAssignedRequests.map((req) => (
-                      <div
-                        key={req._id}
-                        className="queue-item"
-                        style={{ borderColor: 'var(--color-signal-border)' }}
-                      >
-                        <div className="queue-item-header">
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span className={`status-pill ${req.status}`}>
-                              {req.status === 'in_progress' ? 'In Session' : 'Claimed'}
-                            </span>
-                            <span className={`category-pill ${req.category}`}>
-                              {req.category}
-                            </span>
-                            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-warm-white)' }}>
-                              {req.student?.name} ({req.student?.email})
-                            </span>
-                          </div>
-
-                          <div>
-                            {req.status === 'claimed' && (
-                              <button
-                                type="button"
-                                className="btn btn-primary"
-                                onClick={() => onUpdateStatus(req._id, 'in_progress')}
-                              >
-                                Start 1:1 Session
-                              </button>
-                            )}
-                            {req.status === 'in_progress' && (
-                              <button
-                                type="button"
-                                className="btn btn-primary"
-                                onClick={() => handleOpenResolutionModal(req)}
-                              >
-                                Resolve Session
-                              </button>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="queue-item-title">{req.topic}</div>
-                        <div className="queue-item-desc">{req.description}</div>
-
-                        {req.codeSnippet && (
-                          <pre className="code-box">{req.codeSnippet}</pre>
-                        )}
-
-                        <div style={{ fontSize: 11, color: 'var(--color-neutral-muted)', fontFamily: 'var(--font-mono)' }}>
-                          Elapsed: {formatDuration(req.inProgressAt || req.claimedAt || req.createdAt)}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
             </div>
-
-            {/* Other Mentors' Active Sessions */}
-            {otherActiveRequests.length > 0 && (
-              <div className="section-card">
-                <div className="section-card-header">
-                  <span className="section-card-title" style={{ fontSize: 13, color: 'var(--color-neutral)' }}>
-                    Colleague Sessions ({otherActiveRequests.length})
-                  </span>
-                </div>
-
-                <div className="section-card-body">
-                  <div className="queue-list">
-                    {otherActiveRequests.map((req) => (
-                      <div key={req._id} className="queue-item" style={{ opacity: 0.85 }}>
-                        <div className="queue-item-header">
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span className={`status-pill ${req.status}`}>
-                              {req.status === 'in_progress' ? 'In Session' : 'Claimed'}
-                            </span>
-                            <span className={`category-pill ${req.category}`}>
-                              {req.category}
-                            </span>
-                            <span style={{ fontSize: 12, color: 'var(--color-neutral-muted)' }}>
-                              Mentor: {req.mentor?.name || 'Colleague'}
-                            </span>
-                          </div>
-                          <span style={{ fontSize: 11, color: 'var(--color-neutral-muted)' }}>
-                            {formatDuration(req.inProgressAt || req.claimedAt)}
-                          </span>
-                        </div>
-                        <div className="queue-item-title" style={{ fontSize: 14 }}>
-                          {req.topic}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+          )}
         </div>
-      ) : (
-        /* Resolved Sessions & Student Feedback View */
+      )}
+
+      {/* ----------------------------------------------------------------- */}
+      {/* SECTION 3: SESSION HISTORY & FEEDBACK                             */}
+      {/* ----------------------------------------------------------------- */}
+      {viewTab === 'session_history' && (
         <div className="section-card">
           <div className="section-card-header">
-            <span className="section-card-title">Resolved Sessions &amp; Student Feedback</span>
+            <span className="section-card-title">
+              Session History &amp; Feedback ({filteredHistory.length} / {historyList.length})
+            </span>
             <button
               type="button"
               className="btn btn-secondary"
@@ -477,18 +747,70 @@ export default function MentorWorkspace({
           </div>
 
           <div className="section-card-body">
+            {/* History Filter Bar */}
+            <div className="filter-bar">
+              <div className="filter-pills">
+                <button
+                  type="button"
+                  className={`filter-pill ${historyCategory === 'all' ? 'active' : ''}`}
+                  onClick={() => setHistoryCategory('all')}
+                >
+                  All ({historyList.length})
+                </button>
+                {CATEGORIES.map((cat) => {
+                  const count = historyList.filter((item) => item.category === cat.id).length;
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      className={`filter-pill ${historyCategory === cat.id ? 'active' : ''}`}
+                      onClick={() => setHistoryCategory(cat.id)}
+                    >
+                      {cat.label} {count > 0 ? `(${count})` : ''}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="search-input-wrap">
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="search-icon"
+                  aria-hidden="true"
+                  style={{ color: 'var(--color-neutral-muted)' }}
+                >
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+                <input
+                  type="text"
+                  className="search-input"
+                  placeholder="Search history & feedback..."
+                  value={historySearch}
+                  onChange={(e) => setHistorySearch(e.target.value)}
+                />
+              </div>
+            </div>
+
             {historyError && <div className="alert-banner error">{historyError}</div>}
 
-            {historyList.length === 0 ? (
+            {filteredHistory.length === 0 ? (
               <div className="empty-box">
                 <div className="empty-box-title">No completed sessions recorded</div>
                 <div className="empty-box-desc">
-                  Resolved tickets with diagnostic notes and verified student ratings will appear here.
+                  Resolved tickets with verified student ratings and reflections will appear here.
                 </div>
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                {historyList.map((item) => (
+                {filteredHistory.map((item) => (
                   <div
                     key={item._id}
                     style={{
@@ -517,7 +839,7 @@ export default function MentorWorkspace({
                           </span>
                         ) : (
                           <span style={{ fontSize: 11, color: 'var(--color-neutral-muted)' }}>
-                            No feedback submitted
+                            No rating recorded
                           </span>
                         )}
                         <span style={{ fontSize: 11, color: 'var(--color-neutral-muted)', fontFamily: 'var(--font-mono)' }}>
@@ -533,7 +855,7 @@ export default function MentorWorkspace({
                     {item.resolutionNotes && (
                       <div className="history-note-box">
                         <strong style={{ fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--color-signal)' }}>
-                          Resolution Summary:
+                          Diagnostic Notes:
                         </strong>
                         <p style={{ marginTop: 2, fontSize: 13 }}>{item.resolutionNotes}</p>
                       </div>
@@ -548,81 +870,6 @@ export default function MentorWorkspace({
                 ))}
               </div>
             )}
-          </div>
-        </div>
-      )}
-
-      {/* Resolution Summary Modal */}
-      {resolvingRequest && (
-        <div className="modal-overlay" onClick={handleCloseResolutionModal}>
-          <div className="modal-container" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <span className="modal-title">Complete &amp; Resolve Session</span>
-              <button
-                type="button"
-                className="modal-close-btn font-mono"
-                onClick={handleCloseResolutionModal}
-              >
-                [ESC]
-              </button>
-            </div>
-
-            <form onSubmit={handleConfirmResolution}>
-              <div className="modal-body">
-                <div>
-                  <div style={{ fontSize: 12, color: 'var(--color-neutral-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: 'var(--font-mono)' }}>
-                    Session Target
-                  </div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-warm-white)', marginTop: 2 }}>
-                    {resolvingRequest.topic}
-                  </div>
-                  <div style={{ fontSize: 13, color: 'var(--color-neutral)', marginTop: 2 }}>
-                    Student: {resolvingRequest.student?.name} ({resolvingRequest.student?.email})
-                  </div>
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label" htmlFor="resolution-notes">
-                    Diagnostic &amp; Resolution Summary (Recommended)
-                  </label>
-                  <textarea
-                    id="resolution-notes"
-                    className="form-textarea"
-                    style={{ minHeight: 110 }}
-                    placeholder="Document root cause (e.g. incorrect Vite websocket proxy configuration), the applied solution, and key takeaways..."
-                    value={resolutionNotes}
-                    onChange={(e) => setResolutionNotes(e.target.value)}
-                    maxLength={1000}
-                    disabled={isSubmittingResolution}
-                  />
-                  <span className="form-hint">
-                    {resolutionNotes.length} / 1000 characters. Visible to the student upon session completion.
-                  </span>
-                </div>
-
-                {resolutionError && (
-                  <div className="alert-banner error">{resolutionError}</div>
-                )}
-              </div>
-
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={handleCloseResolutionModal}
-                  disabled={isSubmittingResolution}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  disabled={isSubmittingResolution}
-                >
-                  {isSubmittingResolution ? 'Saving Resolution...' : 'Confirm & Mark Resolved'}
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}

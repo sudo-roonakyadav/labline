@@ -20,6 +20,12 @@ function formatDuration(dateString) {
   return `${hours}h ${remainingMins}m`;
 }
 
+function formatTime(dateString) {
+  if (!dateString) return '';
+  const d = new Date(dateString);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
 export default function StudentWorkspace({
   currentUser,
   myRequests = [],
@@ -28,46 +34,61 @@ export default function StudentWorkspace({
   onCreateRequest,
   onCancelRequest,
   onSubmitFeedback,
+  onPostMessage,
+  onCloseRequest,
   requestSubmitting = false,
   requestError = null,
   requestSuccess = null,
 }) {
-  // Form State
+  // Submission Form State
   const [topic, setTopic] = useState('');
   const [description, setDescription] = useState('');
   const [codeSnippet, setCodeSnippet] = useState('');
   const [category, setCategory] = useState('frontend');
+
+  // Conversation Follow-Up State
+  const [followUpText, setFollowUpText] = useState('');
+  const [followUpSubmitting, setFollowUpSubmitting] = useState(false);
+  const [followUpError, setFollowUpError] = useState(null);
+
+  // Student Closure & Rating State (Active Session)
+  const [showCloseCard, setShowCloseCard] = useState(false);
+  const [closeRating, setCloseRating] = useState(5);
+  const [closeComment, setCloseComment] = useState('');
+  const [closeSubmitting, setCloseSubmitting] = useState(false);
+  const [closeError, setCloseError] = useState(null);
+
+  // Standalone Feedback State (For legacy unrated resolved sessions)
+  const [feedbackRating, setFeedbackRating] = useState(5);
+  const [feedbackComment, setFeedbackComment] = useState('');
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+  const [feedbackError, setFeedbackError] = useState(null);
 
   // History Filter State
   const [historyCategory, setHistoryCategory] = useState('all');
   const [historySearch, setHistorySearch] = useState('');
   const [expandedId, setExpandedId] = useState(null);
 
-  // Active Feedback State for resolved requests needing feedback
-  const [feedbackRating, setFeedbackRating] = useState(5);
-  const [feedbackComment, setFeedbackComment] = useState('');
-  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
-  const [feedbackError, setFeedbackError] = useState(null);
-  const [feedbackSuccess, setFeedbackSuccess] = useState(null);
-
-  // Identify active request (waiting, claimed, in_progress)
+  // Identify active request (waiting, claimed, in_progress, awaiting_mentor, awaiting_student)
   const activeRequest = useMemo(() => {
-    return myRequests.find((r) => ['waiting', 'claimed', 'in_progress'].includes(r.status));
+    return myRequests.find((r) =>
+      ['waiting', 'claimed', 'in_progress', 'awaiting_mentor', 'awaiting_student'].includes(r.status)
+    );
   }, [myRequests]);
 
-  // Identify most recent resolved request without feedback
+  // Identify unrated resolved requests
   const unratedResolvedRequest = useMemo(() => {
     return myRequests.find(
       (r) => r.status === 'resolved' && (!r.feedback || !r.feedback.rating)
     );
   }, [myRequests]);
 
-  // Past completed requests
+  // Completed requests partition
   const pastRequests = useMemo(() => {
     return myRequests.filter((r) => ['resolved', 'cancelled'].includes(r.status));
   }, [myRequests]);
 
-  // Filtered past requests
+  // Filtered completed requests
   const filteredPastRequests = useMemo(() => {
     return pastRequests.filter((req) => {
       const matchesCategory =
@@ -83,7 +104,7 @@ export default function StudentWorkspace({
     });
   }, [pastRequests, historyCategory, historySearch]);
 
-  const handleSubmit = async (e) => {
+  const handleSubmitNewRequest = async (e) => {
     e.preventDefault();
     if (!topic.trim() || !description.trim()) return;
     const ok = await onCreateRequest({
@@ -100,22 +121,53 @@ export default function StudentWorkspace({
     }
   };
 
+  const handleSendFollowUp = async (e) => {
+    e.preventDefault();
+    if (!activeRequest || !followUpText.trim() || !onPostMessage) return;
+    setFollowUpSubmitting(true);
+    setFollowUpError(null);
+    try {
+      await onPostMessage(activeRequest._id, followUpText.trim());
+      setFollowUpText('');
+    } catch (err) {
+      setFollowUpError(err.message || 'Failed to send follow-up message.');
+    } finally {
+      setFollowUpSubmitting(false);
+    }
+  };
+
+  const handleConfirmClose = async (e) => {
+    e.preventDefault();
+    if (!activeRequest || !onCloseRequest) return;
+    setCloseSubmitting(true);
+    setCloseError(null);
+    try {
+      await onCloseRequest(activeRequest._id, {
+        rating: closeRating,
+        comment: closeComment.trim(),
+      });
+      setShowCloseCard(false);
+      setCloseComment('');
+      setCloseRating(5);
+    } catch (err) {
+      setCloseError(err.message || 'Failed to close request.');
+    } finally {
+      setCloseSubmitting(false);
+    }
+  };
+
   const handleFeedbackSubmit = async (e) => {
     e.preventDefault();
-    if (!unratedResolvedRequest) return;
+    if (!unratedResolvedRequest || !onSubmitFeedback) return;
     setFeedbackSubmitting(true);
     setFeedbackError(null);
-    setFeedbackSuccess(null);
     try {
-      const ok = await onSubmitFeedback(unratedResolvedRequest._id, {
+      await onSubmitFeedback(unratedResolvedRequest._id, {
         rating: feedbackRating,
         comment: feedbackComment.trim(),
       });
-      if (ok) {
-        setFeedbackSuccess('Outcome feedback recorded. Thank you for closing the loop!');
-        setFeedbackComment('');
-        fetchMyRequests();
-      }
+      setFeedbackComment('');
+      fetchMyRequests();
     } catch (err) {
       setFeedbackError(err.message || 'Failed to submit feedback.');
     } finally {
@@ -135,7 +187,7 @@ export default function StudentWorkspace({
           <div>
             <h1 className="page-heading">Student Dashboard</h1>
             <p className="page-subheading">
-              Submit technical doubts to lab mentors. Track FIFO queue position, live session progress, and resolution feedback.
+              Submit technical doubts to lab mentors. Track FIFO queue position, exchange interactive follow-up replies, and confirm resolution with ratings.
             </p>
           </div>
           <div className="telemetry-strip">
@@ -158,7 +210,7 @@ export default function StudentWorkspace({
       {requestError && <div className="alert-banner error" style={{ marginBottom: 20 }}>{requestError}</div>}
       {requestSuccess && <div className="alert-banner success" style={{ marginBottom: 20 }}>{requestSuccess}</div>}
 
-      {/* Unrated Resolved Request Feedback Prompt */}
+      {/* Standalone Feedback Prompt for Legacy Unrated Resolved Requests */}
       {unratedResolvedRequest && (
         <div className="feedback-prompt-box" style={{ marginBottom: 28 }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
@@ -180,7 +232,7 @@ export default function StudentWorkspace({
           </div>
 
           {unratedResolvedRequest.resolutionNotes && (
-            <div className="history-note-box">
+            <div className="history-note-box" style={{ marginTop: 12 }}>
               <strong style={{ fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--color-signal)' }}>
                 Mentor Diagnostic &amp; Resolution Notes:
               </strong>
@@ -188,7 +240,8 @@ export default function StudentWorkspace({
             </div>
           )}
 
-          <form onSubmit={handleFeedbackSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <form onSubmit={handleFeedbackSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 14 }}>
+            {feedbackError && <div className="alert-box error font-mono">{feedbackError}</div>}
             <div>
               <label className="form-label" style={{ marginBottom: 8, display: 'block' }}>
                 Rate Session Helpfulness (1 to 5)
@@ -219,14 +272,8 @@ export default function StudentWorkspace({
                 placeholder="Share brief feedback on what helped you get unblocked..."
                 value={feedbackComment}
                 onChange={(e) => setFeedbackComment(e.target.value)}
-                maxLength={500}
-                disabled={feedbackSubmitting}
               />
-              <span className="form-hint">{feedbackComment.length} / 500 characters</span>
             </div>
-
-            {feedbackError && <div className="alert-banner error">{feedbackError}</div>}
-            {feedbackSuccess && <div className="alert-banner success">{feedbackSuccess}</div>}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <button type="submit" className="btn btn-primary" disabled={feedbackSubmitting}>
@@ -239,49 +286,53 @@ export default function StudentWorkspace({
 
       {/* Main Workspace Layout */}
       <div className="workspace-grid">
-        {/* Left Column: Active Signal Tracker & Signal Composer */}
+        {/* Left Column: Active Conversation / Queue Tracker OR Help Request Composer */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-          {/* Active Request Tracker */}
           {activeRequest ? (
             <div className="active-tracker">
+              {/* Tracker Banner */}
               <div className={`active-tracker-banner ${activeRequest.status}`}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <span className="pulse-dot active" style={{ width: 8, height: 8 }} />
                   <span>
                     {activeRequest.status === 'waiting' && `POSITION #${activeRequest.queuePosition || 1} IN FIFO QUEUE`}
-                    {activeRequest.status === 'claimed' && 'SIGNAL CLAIMED — MENTOR CONNECTING'}
-                    {activeRequest.status === 'in_progress' && 'ACTIVE 1:1 DEBUGGING SESSION'}
+                    {activeRequest.status === 'claimed' && 'REQUEST ACCEPTED — MENTOR REVIEWING'}
+                    {activeRequest.status === 'in_progress' && 'LIVE 1:1 DEBUGGING SESSION'}
+                    {activeRequest.status === 'awaiting_student' && 'MENTOR REPLIED — FOLLOW-UP OR CLOSURE NEEDED'}
+                    {activeRequest.status === 'awaiting_mentor' && 'FOLLOW-UP SENT — WAITING FOR MENTOR'}
                   </span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <span className={`category-pill ${activeRequest.category}`}>
                     {activeRequest.category}
                   </span>
-                  <span>Wait: {formatDuration(activeRequest.createdAt)}</span>
+                  <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)' }}>
+                    Wait: {formatDuration(activeRequest.createdAt)}
+                  </span>
                 </div>
               </div>
 
               <div className="active-tracker-content">
-                {/* Real-Time Lifecycle Timeline */}
+                {/* Lifecycle Step Bar */}
                 <div className="lifecycle-step-bar">
-                  <div className={`lifecycle-step-node completed`}>
+                  <div className="lifecycle-step-node completed">
                     <span style={{ color: 'var(--color-signal)' }}>●</span> 1. Submitted
                   </div>
                   <span className="lifecycle-step-arrow">→</span>
-                  <div className={`lifecycle-step-node ${['claimed', 'in_progress', 'resolved'].includes(activeRequest.status) ? 'completed active' : ''}`}>
-                    <span>●</span> 2. Claimed {activeRequest.mentor?.name ? `(${activeRequest.mentor.name})` : ''}
+                  <div className={`lifecycle-step-node ${activeRequest.status !== 'waiting' ? 'completed active' : ''}`}>
+                    <span>●</span> 2. Accepted {activeRequest.mentor?.name ? `(${activeRequest.mentor.name})` : ''}
                   </div>
                   <span className="lifecycle-step-arrow">→</span>
-                  <div className={`lifecycle-step-node ${['in_progress', 'resolved'].includes(activeRequest.status) ? 'completed active' : ''}`}>
-                    <span>●</span> 3. In Session
+                  <div className={`lifecycle-step-node ${['claimed', 'in_progress', 'awaiting_mentor', 'awaiting_student'].includes(activeRequest.status) ? 'completed active' : ''}`}>
+                    <span>●</span> 3. Conversation
                   </div>
                   <span className="lifecycle-step-arrow">→</span>
-                  <div className={`lifecycle-step-node ${activeRequest.status === 'resolved' ? 'completed' : ''}`}>
-                    <span>○</span> 4. Resolved
+                  <div className="lifecycle-step-node">
+                    <span>○</span> 4. Solved
                   </div>
                 </div>
 
-                {/* Queue Intelligence Telemetry (For Waiting Requests) */}
+                {/* Queue Intelligence Telemetry (For Waiting Requests Only) */}
                 {activeRequest.status === 'waiting' && activeRequest.intelligence && (
                   <div className="telemetry-strip" style={{ padding: '8px 14px' }}>
                     <div className="telemetry-metric">
@@ -309,55 +360,300 @@ export default function StudentWorkspace({
                   </div>
                 )}
 
-                <div>
-                  <h2 className="tracker-title">{activeRequest.topic}</h2>
-                  <p className="tracker-desc" style={{ marginTop: 8 }}>{activeRequest.description}</p>
+                {/* Doubt Summary */}
+                <div style={{ backgroundColor: 'var(--color-ink-elevated)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-xs)', padding: 16 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <span className="form-label" style={{ fontSize: 10 }}>DOUBT TOPIC</span>
+                    {activeRequest.mentor && (
+                      <span style={{ fontSize: 12, color: 'var(--color-signal)', fontFamily: 'var(--font-mono)' }}>
+                        Mentor: {activeRequest.mentor.name}
+                      </span>
+                    )}
+                  </div>
+                  <h2 className="tracker-title" style={{ fontSize: 17 }}>{activeRequest.topic}</h2>
+                  <p className="tracker-desc" style={{ marginTop: 6, fontSize: 13 }}>{activeRequest.description}</p>
+
+                  {activeRequest.codeSnippet && (
+                    <div style={{ marginTop: 12 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                        <span className="form-label" style={{ fontSize: 10 }}>Code / Terminal Snippet</span>
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          style={{ padding: '2px 8px', fontSize: 11 }}
+                          onClick={() => navigator.clipboard?.writeText(activeRequest.codeSnippet)}
+                        >
+                          Copy
+                        </button>
+                      </div>
+                      <pre className="code-box" style={{ fontSize: 12, maxHeight: 160 }}>{activeRequest.codeSnippet}</pre>
+                    </div>
+                  )}
+
+                  <div className="tracker-meta-bar" style={{ marginTop: 12, paddingTop: 12 }}>
+                    <div className="meta-item">
+                      <span className="meta-label">Submitted</span>
+                      <span className="meta-value">{new Date(activeRequest.createdAt).toLocaleTimeString()}</span>
+                    </div>
+                    {activeRequest.status === 'waiting' && (
+                      <div style={{ marginLeft: 'auto' }}>
+                        <button
+                          type="button"
+                          className="btn btn-danger"
+                          onClick={() => onCancelRequest(activeRequest._id)}
+                        >
+                          Cancel request
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                {activeRequest.codeSnippet && (
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                      <span className="form-label">Code / Terminal Snippet</span>
-                      <button
-                        type="button"
-                        className="btn btn-secondary"
-                        style={{ padding: '2px 8px', fontSize: 11 }}
-                        onClick={() => navigator.clipboard?.writeText(activeRequest.codeSnippet)}
-                      >
-                        Copy
-                      </button>
+                {/* ----------------------------------------------------------- */}
+                {/* INTERACTIVE CONVERSATION THREAD (When Request Accepted)     */}
+                {/* ----------------------------------------------------------- */}
+                {activeRequest.status !== 'waiting' && (
+                  <div className="conversation-container" style={{ marginTop: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                      <span className="form-label" style={{ color: 'var(--color-warm-white)', fontWeight: 700 }}>
+                        Conversation Thread ({activeRequest.messages?.length || 0})
+                      </span>
+                      <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--color-neutral-muted)' }}>
+                        Live Synchronized
+                      </span>
                     </div>
-                    <pre className="code-box">{activeRequest.codeSnippet}</pre>
+
+                    {/* Messages Area */}
+                    <div className="conversation-thread" style={{
+                      backgroundColor: 'var(--color-ink)',
+                      border: '1px solid var(--color-border)',
+                      borderRadius: 'var(--radius-xs)',
+                      padding: 16,
+                      maxHeight: 380,
+                      overflowY: 'auto',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 14,
+                    }}>
+                      {(!activeRequest.messages || activeRequest.messages.length === 0) ? (
+                        <div style={{ textAlign: 'center', padding: '28px 16px', color: 'var(--color-neutral)' }}>
+                          <p style={{ fontSize: 13, marginBottom: 4 }}>
+                            <strong>{activeRequest.mentor?.name || 'Mentor'}</strong> accepted your request.
+                          </p>
+                          <p style={{ fontSize: 12, color: 'var(--color-neutral-muted)' }}>
+                            Waiting for the mentor to post an initial diagnosis or reply...
+                          </p>
+                        </div>
+                      ) : (
+                        activeRequest.messages.map((msg, idx) => {
+                          const isMentor = msg.senderRole === 'mentor';
+                          return (
+                            <div
+                              key={msg._id || idx}
+                              className={`message-bubble ${isMentor ? 'mentor' : 'student'}`}
+                              style={{
+                                alignSelf: isMentor ? 'flex-start' : 'flex-end',
+                                maxWidth: '85%',
+                                backgroundColor: isMentor ? 'var(--color-ink-elevated)' : 'var(--color-charcoal)',
+                                border: isMentor ? '1px solid var(--color-signal-border)' : '1px solid var(--color-border)',
+                                borderRadius: 'var(--radius-xs)',
+                                padding: '12px 14px',
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>
+                                <span style={{
+                                  fontSize: 10,
+                                  fontFamily: 'var(--font-mono)',
+                                  fontWeight: 700,
+                                  letterSpacing: '0.06em',
+                                  color: isMentor ? 'var(--color-signal)' : 'var(--color-active-blue)',
+                                }}>
+                                  {isMentor ? `MENTOR // ${msg.senderName || activeRequest.mentor?.name || 'Mentor'}` : 'YOU (STUDENT)'}
+                                </span>
+                                <span style={{ fontSize: 10, color: 'var(--color-neutral-muted)', fontFamily: 'var(--font-mono)' }}>
+                                  {formatTime(msg.createdAt)}
+                                </span>
+                              </div>
+                              <p style={{ fontSize: 13, color: 'var(--color-warm-white)', lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                {msg.content}
+                              </p>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+
+                    {/* Student Action Area: Close as Solved OR Ask Follow-Up */}
+                    <div style={{ marginTop: 16 }}>
+                      {showCloseCard ? (
+                        /* Inline Closure Card */
+                        <div style={{
+                          backgroundColor: 'var(--color-ink-elevated)',
+                          border: '1px solid var(--color-signal)',
+                          borderRadius: 'var(--radius-xs)',
+                          padding: 18,
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span className="status-pill resolved">Closing Session</span>
+                              <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-warm-white)' }}>
+                                Solved — confirm and rate session
+                              </h3>
+                            </div>
+                            <button
+                              type="button"
+                              className="btn btn-secondary"
+                              style={{ padding: '3px 8px', fontSize: 11 }}
+                              onClick={() => setShowCloseCard(false)}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+
+                          <p style={{ fontSize: 12, color: 'var(--color-neutral)', marginBottom: 14 }}>
+                            Only you can close this session. Rate the helpfulness of mentor <strong>{activeRequest.mentor?.name}</strong> to finalize and record your doubt as resolved.
+                          </p>
+
+                          {closeError && <div className="alert-banner error" style={{ marginBottom: 12 }}>{closeError}</div>}
+
+                          <form onSubmit={handleConfirmClose} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                            <div>
+                              <label className="form-label" style={{ marginBottom: 6, display: 'block' }}>
+                                Rating (1 to 5)
+                              </label>
+                              <div className="rating-stars-group">
+                                {[1, 2, 3, 4, 5].map((num) => (
+                                  <button
+                                    key={num}
+                                    type="button"
+                                    className={`star-btn ${closeRating === num ? 'selected' : ''}`}
+                                    onClick={() => setCloseRating(num)}
+                                    disabled={closeSubmitting}
+                                  >
+                                    {num}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="form-group">
+                              <label className="form-label" htmlFor="close-comment">
+                                Resolution Comment (Optional)
+                              </label>
+                              <textarea
+                                id="close-comment"
+                                className="form-textarea"
+                                style={{ minHeight: 65 }}
+                                placeholder="What insight or debugging step unblocked you?..."
+                                value={closeComment}
+                                onChange={(e) => setCloseComment(e.target.value)}
+                              />
+                            </div>
+
+                            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
+                              <button
+                                type="button"
+                                className="btn btn-secondary"
+                                onClick={() => setShowCloseCard(false)}
+                                disabled={closeSubmitting}
+                              >
+                                Back to Discussion
+                              </button>
+                              <button
+                                type="submit"
+                                className="btn btn-primary"
+                                disabled={closeSubmitting}
+                              >
+                                {closeSubmitting ? 'Closing Session...' : 'Confirm & Close Request'}
+                              </button>
+                            </div>
+                          </form>
+                        </div>
+                      ) : (
+                        /* Two Clear Choices: Solved OR Ask Follow-Up */
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            flexWrap: 'wrap',
+                            gap: 12,
+                            padding: '12px 16px',
+                            backgroundColor: 'var(--color-ink-elevated)',
+                            border: '1px solid var(--color-border)',
+                            borderRadius: 'var(--radius-xs)',
+                          }}>
+                            <div>
+                              <strong style={{ fontSize: 13, color: 'var(--color-warm-white)', display: 'block' }}>
+                                Did the mentor's answer resolve your issue?
+                              </strong>
+                              <span style={{ fontSize: 11, color: 'var(--color-neutral-muted)' }}>
+                                If you are unblocked, close this session with a verified rating.
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              className="btn btn-primary"
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px' }}
+                              onClick={() => {
+                                setShowCloseCard(true);
+                                setCloseError(null);
+                              }}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                                <path d="M3 8.5L6.5 12L13 4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                              <span>Solved — close request</span>
+                            </button>
+                          </div>
+
+                          {/* Follow-Up Composer */}
+                          <div style={{
+                            backgroundColor: 'var(--color-ink-elevated)',
+                            border: '1px solid var(--color-border)',
+                            borderRadius: 'var(--radius-xs)',
+                            padding: 16,
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                              <span className="form-label">Ask a Follow-Up</span>
+                              <span className="form-hint">{followUpText.length} / 2000 characters</span>
+                            </div>
+
+                            {followUpError && <div className="alert-banner error" style={{ marginBottom: 10 }}>{followUpError}</div>}
+
+                            <form onSubmit={handleSendFollowUp} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                              <textarea
+                                className="form-textarea"
+                                style={{ minHeight: 75 }}
+                                placeholder="Need further clarification? Type your follow-up message, new error trace, or question..."
+                                value={followUpText}
+                                onChange={(e) => setFollowUpText(e.target.value)}
+                                maxLength={2000}
+                              />
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+                                <span style={{ fontSize: 11, color: 'var(--color-neutral-muted)' }}>
+                                  Posting keeps this request open with your assigned mentor.
+                                </span>
+                                <button
+                                  type="submit"
+                                  className="btn btn-secondary"
+                                  disabled={followUpSubmitting || !followUpText.trim()}
+                                  style={{ borderColor: 'var(--color-active-blue)', color: 'var(--color-warm-white)' }}
+                                >
+                                  {followUpSubmitting ? 'Sending...' : 'Ask a follow-up'}
+                                </button>
+                              </div>
+                            </form>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
-
-                <div className="tracker-meta-bar">
-                  <div className="meta-item">
-                    <span className="meta-label">Submitted</span>
-                    <span className="meta-value">{new Date(activeRequest.createdAt).toLocaleTimeString()}</span>
-                  </div>
-                  {activeRequest.mentor && (
-                    <div className="meta-item">
-                      <span className="meta-label">Assigned Mentor</span>
-                      <span className="meta-value">{activeRequest.mentor.name}</span>
-                    </div>
-                  )}
-                  {activeRequest.status === 'waiting' && (
-                    <div style={{ marginLeft: 'auto' }}>
-                      <button
-                        type="button"
-                        className="btn btn-danger"
-                        onClick={() => onCancelRequest(activeRequest._id)}
-                      >
-                        Cancel request
-                      </button>
-                    </div>
-                  )}
-                </div>
               </div>
             </div>
           ) : (
-            /* Request Composer */
+            /* Request Composer (When no active request exists) */
             <div className="section-card">
               <div className="section-card-header">
                 <span className="section-card-title">Submit Help Request</span>
@@ -367,7 +663,7 @@ export default function StudentWorkspace({
               </div>
 
               <div className="section-card-body">
-                <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                <form onSubmit={handleSubmitNewRequest} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
                   {/* Category Selection */}
                   <div className="form-group">
                     <label className="form-label">Category</label>
@@ -378,7 +674,6 @@ export default function StudentWorkspace({
                           type="button"
                           className={`category-radio-btn ${category === cat.id ? 'active' : ''}`}
                           onClick={() => setCategory(cat.id)}
-                          disabled={requestSubmitting}
                         >
                           {cat.label}
                         </button>
@@ -386,56 +681,54 @@ export default function StudentWorkspace({
                     </div>
                   </div>
 
-                  {/* Topic Input */}
+                  {/* Topic / Summary */}
                   <div className="form-group">
-                    <label className="form-label" htmlFor="signal-topic">
-                      Specific Doubt Topic
+                    <label className="form-label" htmlFor="topic-input">
+                      Topic / Blocker Summary <span style={{ color: 'var(--color-signal)' }}>*</span>
                     </label>
                     <input
-                      id="signal-topic"
+                      id="topic-input"
                       type="text"
                       className="form-input"
-                      placeholder="e.g. Redux Toolkit dispatch loop on checkout submit"
+                      placeholder="e.g. Segmentation fault when inserting into binary search tree"
                       value={topic}
                       onChange={(e) => setTopic(e.target.value)}
                       maxLength={100}
                       required
-                      disabled={requestSubmitting}
                     />
-                    <span className="form-hint">Between 2 and 100 characters. Keep it technical and concise.</span>
+                    <span className="form-hint">{topic.length} / 100 characters</span>
                   </div>
 
-                  {/* Description Input */}
+                  {/* Problem Description */}
                   <div className="form-group">
-                    <label className="form-label" htmlFor="signal-desc">
-                      Detailed Blocker Description
+                    <label className="form-label" htmlFor="description-input">
+                      Detailed Problem Description <span style={{ color: 'var(--color-signal)' }}>*</span>
                     </label>
                     <textarea
-                      id="signal-desc"
+                      id="description-input"
                       className="form-textarea"
-                      placeholder="Describe what you tried, the expected behavior, and the exact error encountered..."
+                      placeholder="Describe what you tried, the observed vs expected behavior, and exact error message..."
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
                       maxLength={1000}
                       required
-                      disabled={requestSubmitting}
                     />
-                    <span className="form-hint">{description.length} / 1000 characters (min 5 chars)</span>
+                    <span className="form-hint">{description.length} / 1000 characters</span>
                   </div>
 
-                  {/* Code Snippet Input */}
+                  {/* Code Snippet */}
                   <div className="form-group">
-                    <label className="form-label" htmlFor="signal-code">
-                      Code Snippet / Terminal Trace (Optional)
+                    <label className="form-label" htmlFor="code-snippet-input">
+                      Code Snippet or Terminal Trace (Optional)
                     </label>
                     <textarea
-                      id="signal-code"
+                      id="code-snippet-input"
                       className="form-textarea font-mono"
-                      placeholder="Paste minimal reproducing code, exception stack trace, or terminal log..."
+                      style={{ minHeight: 110 }}
+                      placeholder="// Paste minimal reproducible code or terminal trace..."
                       value={codeSnippet}
                       onChange={(e) => setCodeSnippet(e.target.value)}
                       maxLength={3000}
-                      disabled={requestSubmitting}
                     />
                     <span className="form-hint">{codeSnippet.length} / 3000 characters</span>
                   </div>
@@ -586,29 +879,48 @@ export default function StudentWorkspace({
 
                           {req.codeSnippet && (
                             <div>
-                              <span className="form-label" style={{ fontSize: 10 }}>Snippet</span>
-                              <pre className="code-box" style={{ maxHeight: 120, marginTop: 2 }}>{req.codeSnippet}</pre>
+                              <span className="form-label" style={{ fontSize: 10 }}>Code Snippet</span>
+                              <pre className="code-box" style={{ marginTop: 2 }}>{req.codeSnippet}</pre>
                             </div>
                           )}
 
                           {req.mentor && (
                             <div style={{ fontSize: 12, color: 'var(--color-neutral)' }}>
-                              Mentor: <strong style={{ color: 'var(--color-warm-white)' }}>{req.mentor.name}</strong>
+                              Assigned Mentor: <strong>{req.mentor.name}</strong> ({req.mentor.email})
+                            </div>
+                          )}
+
+                          {req.messages && req.messages.length > 0 && (
+                            <div style={{ marginTop: 6 }}>
+                              <span className="form-label" style={{ fontSize: 10, marginBottom: 4, display: 'block' }}>
+                                Conversation Log ({req.messages.length} messages)
+                              </span>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                {req.messages.map((m, mIdx) => (
+                                  <div key={m._id || mIdx} style={{ fontSize: 11, padding: '6px 10px', backgroundColor: 'var(--color-ink)', borderRadius: 'var(--radius-xs)', borderLeft: m.senderRole === 'mentor' ? '2px solid var(--color-signal)' : '2px solid var(--color-active-blue)' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--color-neutral-muted)', marginBottom: 2 }}>
+                                      <span>{m.senderRole === 'mentor' ? `Mentor (${m.senderName || 'Mentor'})` : 'Student'}</span>
+                                      <span>{formatTime(m.createdAt)}</span>
+                                    </div>
+                                    <div style={{ color: 'var(--color-warm-white)', whiteSpace: 'pre-wrap' }}>{m.content}</div>
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                           )}
 
                           {req.resolutionNotes && (
                             <div className="history-note-box">
                               <strong style={{ fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--color-signal)' }}>
-                                Mentor Resolution Summary:
+                                Mentor Resolution Notes:
                               </strong>
-                              <p style={{ marginTop: 2 }}>{req.resolutionNotes}</p>
+                              <p style={{ marginTop: 2, fontSize: 12 }}>{req.resolutionNotes}</p>
                             </div>
                           )}
 
                           {req.feedback?.comment && (
-                            <div style={{ fontSize: 12, color: 'var(--color-neutral)' }}>
-                              Student Feedback: <em>"{req.feedback.comment}"</em>
+                            <div style={{ fontSize: 12, color: 'var(--color-neutral-muted)' }}>
+                              Your Comment: <em>"{req.feedback.comment}"</em>
                             </div>
                           )}
                         </div>

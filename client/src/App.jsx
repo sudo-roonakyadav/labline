@@ -234,6 +234,10 @@ export default function App() {
       triggerBoundedRefresh();
     });
 
+    socket.on('request:message', () => {
+      triggerBoundedRefresh();
+    });
+
     socket.on('disconnect', () => {
       if (!isMountedRef.current) return;
       setSocketConnected(false);
@@ -376,6 +380,48 @@ export default function App() {
     }
   };
 
+  const handlePostMessage = async (requestId, content) => {
+    try {
+      const res = await fetch(`/api/requests/${requestId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ content }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || data.error || 'Failed to post message.');
+      }
+      if (currentUser?.role === 'student') {
+        fetchMyRequests();
+      } else {
+        fetchQueue();
+      }
+      return data;
+    } catch (err) {
+      throw err;
+    }
+  };
+
+  const handleCloseRequest = async (requestId, { rating, comment }) => {
+    try {
+      const res = await fetch(`/api/requests/${requestId}/close`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ rating, comment }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || data.error || 'Failed to close request.');
+      }
+      fetchMyRequests();
+      return data;
+    } catch (err) {
+      throw err;
+    }
+  };
+
   const handleClaimRequest = async (requestId) => {
     setQueueActionError(null);
     try {
@@ -439,14 +485,16 @@ export default function App() {
   };
 
   // Student partition
-  const activeStudentRequest = myRequests.find((r) => ['waiting', 'claimed', 'in_progress'].includes(r.status));
+  const activeStudentRequest = myRequests.find((r) =>
+    ['waiting', 'claimed', 'in_progress', 'awaiting_mentor', 'awaiting_student'].includes(r.status)
+  );
   const pastStudentRequests = myRequests.filter((r) => ['resolved', 'cancelled'].includes(r.status));
 
   // Mentor partition
   const waitingQueue = mentorQueue.filter((r) => r.status === 'waiting');
   const myAssignedRequests = mentorQueue.filter(
     (r) =>
-      ['claimed', 'in_progress'].includes(r.status) &&
+      ['claimed', 'in_progress', 'awaiting_mentor', 'awaiting_student'].includes(r.status) &&
       (r.mentor?._id === currentUser?.id || r.mentor?.id === currentUser?.id || r.mentor === currentUser?.id)
   );
   const otherActiveRequests = mentorQueue.filter(
@@ -559,6 +607,8 @@ export default function App() {
               onCreateRequest={handleCreateRequest}
               onCancelRequest={handleCancelRequest}
               onSubmitFeedback={handleSubmitFeedback}
+              onPostMessage={handlePostMessage}
+              onCloseRequest={handleCloseRequest}
               requestSubmitting={requestSubmitting}
               requestError={requestError}
               requestSuccess={requestSuccess}
@@ -575,6 +625,7 @@ export default function App() {
               onClaimRequest={handleClaimRequest}
               onUpdateStatus={handleUpdateStatus}
               onToggleAvailability={handleToggleAvailability}
+              onPostMessage={handlePostMessage}
               queueActionError={queueActionError}
               queueIntelligence={queueIntelligence}
             />
