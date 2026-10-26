@@ -28,6 +28,7 @@ export const config = {
   clientOrigin: resolveClientOrigin(),
   mongodbUri: process.env.MONGODB_URI,
   jwtSecret: process.env.JWT_SECRET,
+  teacherInviteCode: process.env.TEACHER_INVITE_CODE ? process.env.TEACHER_INVITE_CODE.trim() : '',
 };
 
 export function validateConfig() {

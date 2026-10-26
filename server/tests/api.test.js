@@ -218,6 +218,309 @@ describe('LabLine Full-Stack API Test Suite', () => {
   });
 
   // -------------------------------------------------------------------------
+  // DUAL REGISTRATION & TEACHER INVITATION FLOW
+  // -------------------------------------------------------------------------
+  describe('Dual Registration & Teacher Invitation Flow', () => {
+    const TEST_TEACHER_CODE = 'LL-TEST-INVITE-SECURE-KEY-440';
+    let prevConfigCode;
+    let prevEnvCode;
+
+    before(() => {
+      prevConfigCode = config.teacherInviteCode;
+      prevEnvCode = process.env.TEACHER_INVITE_CODE;
+      config.teacherInviteCode = TEST_TEACHER_CODE;
+      process.env.TEACHER_INVITE_CODE = TEST_TEACHER_CODE;
+    });
+
+    after(() => {
+      config.teacherInviteCode = prevConfigCode;
+      process.env.TEACHER_INVITE_CODE = prevEnvCode;
+    });
+
+    test('1. Student registration works without an invitation code', async () => {
+      const res = await request(app)
+        .post('/api/auth/register')
+        .send({
+          email: 'student.explicit@scaler.com',
+          name: 'Explicit Student',
+          password: 'Password123!',
+          accountType: 'student',
+        });
+
+      assert.equal(res.status, 201);
+      assert.equal(res.body.user.email, 'student.explicit@scaler.com');
+      assert.equal(res.body.user.role, 'student');
+      assert.equal(res.body.user.passwordHash, undefined);
+    });
+
+    test('2. Omitting accountType continues to default to student', async () => {
+      const res = await request(app)
+        .post('/api/auth/register')
+        .send({
+          email: 'student.omitted@scaler.com',
+          name: 'Omitted Type Student',
+          password: 'Password123!',
+        });
+
+      assert.equal(res.status, 201);
+      assert.equal(res.body.user.email, 'student.omitted@scaler.com');
+      assert.equal(res.body.user.role, 'student');
+    });
+
+    test('3. Sending role: "mentor" without a valid teacher invitation creates no privileged account', async () => {
+      // 3A: accountType student with role: mentor -> created as student
+      const resStudent = await request(app)
+        .post('/api/auth/register')
+        .send({
+          email: 'sneaky.student@scaler.com',
+          name: 'Sneaky Student',
+          password: 'Password123!',
+          accountType: 'student',
+          role: 'mentor',
+        });
+      assert.equal(resStudent.status, 201);
+      assert.equal(resStudent.body.user.role, 'student');
+
+      // 3B: accountType omitted with role: mentor -> created as student
+      const resOmitted = await request(app)
+        .post('/api/auth/register')
+        .send({
+          email: 'sneaky.omitted@scaler.com',
+          name: 'Sneaky Omitted',
+          password: 'Password123!',
+          role: 'mentor',
+        });
+      assert.equal(resOmitted.status, 201);
+      assert.equal(resOmitted.body.user.role, 'student');
+
+      // 3C: accountType teacher with wrong code and role: mentor -> rejected with 403
+      const resTeacherFake = await request(app)
+        .post('/api/auth/register')
+        .send({
+          email: 'sneaky.teacher@scaler.com',
+          name: 'Sneaky Teacher',
+          password: 'Password123!',
+          accountType: 'teacher',
+          inviteCode: 'WRONG_INVITE_CODE',
+          role: 'mentor',
+        });
+      assert.equal(resTeacherFake.status, 403);
+      assert.equal(resTeacherFake.body.error, 'Forbidden');
+      const foundInDb = await User.findOne({ email: 'sneaky.teacher@scaler.com' });
+      assert.equal(foundInDb, null, 'User must not be created on failed invitation');
+    });
+
+    test('4. Valid teacher invitation creates an account with internal role "mentor"', async () => {
+      const res = await request(app)
+        .post('/api/auth/register')
+        .send({
+          email: 'prof.smith@scaler.com',
+          name: 'Professor Smith',
+          password: 'Password123!',
+          accountType: 'teacher',
+          inviteCode: TEST_TEACHER_CODE,
+        });
+
+      assert.equal(res.status, 201);
+      assert.equal(res.body.user.email, 'prof.smith@scaler.com');
+      assert.equal(res.body.user.name, 'Professor Smith');
+      assert.equal(res.body.user.role, 'mentor');
+      assert.equal(res.body.user.passwordHash, undefined);
+    });
+
+    test('5. Missing or invalid teacher code is rejected', async () => {
+      // 5A: Missing inviteCode
+      const resMissing = await request(app)
+        .post('/api/auth/register')
+        .send({
+          email: 'teacher.missing.code@scaler.com',
+          name: 'Teacher Missing',
+          password: 'Password123!',
+          accountType: 'teacher',
+        });
+      assert.equal(resMissing.status, 422);
+      assert.equal(resMissing.body.error, 'Unprocessable Entity');
+      assert(resMissing.body.details.some((d) => d.includes('invitation code is required')));
+
+      // 5B: Empty string inviteCode
+      const resEmpty = await request(app)
+        .post('/api/auth/register')
+        .send({
+          email: 'teacher.empty.code@scaler.com',
+          name: 'Teacher Empty',
+          password: 'Password123!',
+          accountType: 'teacher',
+          inviteCode: '   ',
+        });
+      assert.equal(resEmpty.status, 422);
+
+      // 5C: Invalid inviteCode (different length)
+      const resInvalidLen = await request(app)
+        .post('/api/auth/register')
+        .send({
+          email: 'teacher.invalid@scaler.com',
+          name: 'Teacher Invalid',
+          password: 'Password123!',
+          accountType: 'teacher',
+          inviteCode: 'SHORT',
+        });
+      assert.equal(resInvalidLen.status, 403);
+      assert.equal(resInvalidLen.body.error, 'Forbidden');
+
+      // 5D: Invalid inviteCode (same length, different characters)
+      const tamperedCode = TEST_TEACHER_CODE.slice(0, -1) + (TEST_TEACHER_CODE.endsWith('A') ? 'B' : 'A');
+      const resTampered = await request(app)
+        .post('/api/auth/register')
+        .send({
+          email: 'teacher.tampered@scaler.com',
+          name: 'Teacher Tampered',
+          password: 'Password123!',
+          accountType: 'teacher',
+          inviteCode: tamperedCode,
+        });
+      assert.equal(resTampered.status, 403);
+      assert.equal(resTampered.body.error, 'Forbidden');
+    });
+
+    test('6. Teacher registration with no server-side invitation configured is rejected', async () => {
+      // Temporarily clear configured code
+      config.teacherInviteCode = '';
+      process.env.TEACHER_INVITE_CODE = '';
+
+      const res = await request(app)
+        .post('/api/auth/register')
+        .send({
+          email: 'teacher.unconfigured@scaler.com',
+          name: 'Teacher Unconfigured',
+          password: 'Password123!',
+          accountType: 'teacher',
+          inviteCode: TEST_TEACHER_CODE,
+        });
+
+      assert.equal(res.status, 503);
+      assert.equal(res.body.error, 'Service Unavailable');
+      assert(res.body.message.includes('not configured'));
+
+      // Restore configured code
+      config.teacherInviteCode = TEST_TEACHER_CODE;
+      process.env.TEACHER_INVITE_CODE = TEST_TEACHER_CODE;
+    });
+
+    test('7. Unsupported account types are rejected', async () => {
+      const invalidTypes = ['admin', 'mentor', 'superuser', 'moderator'];
+      for (const badType of invalidTypes) {
+        const res = await request(app)
+          .post('/api/auth/register')
+          .send({
+            email: `badtype_${badType}@scaler.com`,
+            name: 'Bad Type User',
+            password: 'Password123!',
+            accountType: badType,
+          });
+        assert.equal(res.status, 422, `Expected 422 for accountType: ${badType}`);
+        assert.equal(res.body.error, 'Unprocessable Entity');
+        assert(res.body.details.some((d) => d.includes('Account type must be either "student" or "teacher"')));
+      }
+
+      // Non-string accountType
+      const numRes = await request(app)
+        .post('/api/auth/register')
+        .send({
+          email: 'badtype_num@scaler.com',
+          name: 'Bad Type User',
+          password: 'Password123!',
+          accountType: 12345,
+        });
+      assert.equal(numRes.status, 422);
+    });
+
+    test('8. Duplicate-email handling still works for both account types', async () => {
+      // Try to register teacher using already registered student email
+      const resDupStudent = await request(app)
+        .post('/api/auth/register')
+        .send({
+          email: 'student.explicit@scaler.com',
+          name: 'Duplicate Teacher Attempt',
+          password: 'Password123!',
+          accountType: 'teacher',
+          inviteCode: TEST_TEACHER_CODE,
+        });
+      assert.equal(resDupStudent.status, 409);
+      assert.equal(resDupStudent.body.error, 'Conflict');
+
+      // Try to register student using already registered teacher email
+      const resDupTeacher = await request(app)
+        .post('/api/auth/register')
+        .send({
+          email: 'prof.smith@scaler.com',
+          name: 'Duplicate Student Attempt',
+          password: 'Password123!',
+          accountType: 'student',
+        });
+      assert.equal(resDupTeacher.status, 409);
+      assert.equal(resDupTeacher.body.error, 'Conflict');
+    });
+
+    test('9. Both account types can subsequently log in and receive the correct role', async () => {
+      // Login as student
+      const studentLoginRes = await request(app)
+        .post('/api/auth/login')
+        .send({ email: 'student.explicit@scaler.com', password: 'Password123!' });
+      assert.equal(studentLoginRes.status, 200);
+      assert.equal(studentLoginRes.body.user.role, 'student');
+
+      // Verify session via /api/auth/me
+      const studentMeRes = await request(app)
+        .get('/api/auth/me')
+        .set('Cookie', studentLoginRes.headers['set-cookie']);
+      assert.equal(studentMeRes.status, 200);
+      assert.equal(studentMeRes.body.user.role, 'student');
+
+      // Login as teacher
+      const teacherLoginRes = await request(app)
+        .post('/api/auth/login')
+        .send({ email: 'prof.smith@scaler.com', password: 'Password123!' });
+      assert.equal(teacherLoginRes.status, 200);
+      assert.equal(teacherLoginRes.body.user.role, 'mentor');
+
+      // Verify session via /api/auth/me
+      const teacherMeRes = await request(app)
+        .get('/api/auth/me')
+        .set('Cookie', teacherLoginRes.headers['set-cookie']);
+      assert.equal(teacherMeRes.status, 200);
+      assert.equal(teacherMeRes.body.user.role, 'mentor');
+    });
+
+    test('10. Existing mentor and student authorization rules remain intact', async () => {
+      // Student session
+      const studentLoginRes = await request(app)
+        .post('/api/auth/login')
+        .send({ email: 'student.explicit@scaler.com', password: 'Password123!' });
+      const studentCookie = studentLoginRes.headers['set-cookie'];
+
+      // Teacher session
+      const teacherLoginRes = await request(app)
+        .post('/api/auth/login')
+        .send({ email: 'prof.smith@scaler.com', password: 'Password123!' });
+      const teacherCookie = teacherLoginRes.headers['set-cookie'];
+
+      // Student is forbidden from mentor queue endpoint
+      const studentQueueRes = await request(app)
+        .get('/api/queue')
+        .set('Cookie', studentCookie);
+      assert.equal(studentQueueRes.status, 403);
+      assert.equal(studentQueueRes.body.error, 'Forbidden');
+
+      // Teacher (role: mentor) is authorized to access mentor queue endpoint
+      const teacherQueueRes = await request(app)
+        .get('/api/queue')
+        .set('Cookie', teacherCookie);
+      assert.equal(teacherQueueRes.status, 200);
+      assert(Array.isArray(teacherQueueRes.body.queue));
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // HELP REQUESTS & QUEUE WORKFLOWS
   // -------------------------------------------------------------------------
   describe('Help Requests & Queue Management', () => {
