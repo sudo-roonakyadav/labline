@@ -8,6 +8,7 @@ import { emitQueueChange } from '../socket/index.js';
 export const queueRouter = Router();
 
 const VALID_CATEGORIES = ['dsa', 'frontend', 'backend', 'database', 'environment', 'other'];
+const ACTIVE_STATUSES = ['waiting', 'claimed', 'in_progress', 'awaiting_mentor', 'awaiting_student'];
 
 // GET /api/queue - Mentor views waiting and active requests (with optional category filtering)
 queueRouter.get('/', requireAuth, requireRole('mentor'), async (req, res, next) => {
@@ -15,14 +16,14 @@ queueRouter.get('/', requireAuth, requireRole('mentor'), async (req, res, next) 
     const { category, status } = req.query;
 
     const filter = {
-      status: { $in: ['waiting', 'claimed', 'in_progress'] },
+      status: { $in: ACTIVE_STATUSES },
     };
 
     if (category && VALID_CATEGORIES.includes(category.toLowerCase())) {
       filter.category = category.toLowerCase();
     }
 
-    if (status && ['waiting', 'claimed', 'in_progress'].includes(status)) {
+    if (status && ACTIVE_STATUSES.includes(status)) {
       filter.status = status;
     }
 

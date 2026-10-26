@@ -741,12 +741,12 @@ describe('LabLine Full-Stack API Test Suite', () => {
         .send({ status: 'in_progress' });
       assert.equal(unassignedRes.status, 403);
 
-      // Invalid jump: claimed -> resolved directly (409 Conflict)
-      const invalidJumpRes = await request(app)
+      // Mentor attempting to close request is rejected (403 Forbidden)
+      const mentorCloseRes = await request(app)
         .patch(`/api/requests/${claimedDoc._id}/status`)
         .set('Cookie', claimingMentorCookie)
         .send({ status: 'resolved' });
-      assert.equal(invalidJumpRes.status, 409);
+      assert.equal(mentorCloseRes.status, 403);
 
       // Valid transition: claimed -> in_progress
       const inProgressRes = await request(app)
@@ -756,13 +756,13 @@ describe('LabLine Full-Stack API Test Suite', () => {
       assert.equal(inProgressRes.status, 200);
       assert.equal(inProgressRes.body.request.status, 'in_progress');
 
-      // Valid transition: in_progress -> resolved
-      const resolvedRes = await request(app)
-        .patch(`/api/requests/${claimedDoc._id}/status`)
-        .set('Cookie', claimingMentorCookie)
-        .send({ status: 'resolved' });
-      assert.equal(resolvedRes.status, 200);
-      assert.equal(resolvedRes.body.request.status, 'resolved');
+      // Student closes the session with rating
+      const studentCloseRes = await request(app)
+        .post(`/api/requests/${claimedDoc._id}/close`)
+        .set('Cookie', studentCookie)
+        .send({ rating: 5, comment: 'Session resolved successfully.' });
+      assert.equal(studentCloseRes.status, 200);
+      assert.equal(studentCloseRes.body.request.status, 'resolved');
 
       // Attempting to move resolved request again (409 Conflict)
       const closedRes = await request(app)
@@ -913,31 +913,55 @@ describe('LabLine Full-Stack API Test Suite', () => {
       const badNotesRes = await request(app)
         .patch(`/api/requests/${waitDoc._id}/status`)
         .set('Cookie', mentorCookie)
-        .send({ status: 'resolved', resolutionNotes: longNotes });
+        .send({ status: 'in_progress', resolutionNotes: longNotes });
       assert.equal(badNotesRes.status, 422);
 
-      // Transition to resolved with valid resolution notes
-      const resolveRes = await request(app)
+      // Mentor cannot close session directly (403 Forbidden)
+      const mentorCloseAttempt = await request(app)
+        .patch(`/api/requests/${waitDoc._id}/status`)
+        .set('Cookie', mentorCookie)
+        .send({ status: 'resolved' });
+      assert.equal(mentorCloseAttempt.status, 403);
+
+      // Mentor updates notes while in progress
+      const notesRes = await request(app)
         .patch(`/api/requests/${waitDoc._id}/status`)
         .set('Cookie', mentorCookie)
         .send({
-          status: 'resolved',
+          status: 'in_progress',
           resolutionNotes: 'Configured Vite proxy ws: true option in vite.config.js to support upgrade headers.',
         });
 
-      assert.equal(resolveRes.status, 200);
-      assert.equal(resolveRes.body.request.status, 'resolved');
+      assert.equal(notesRes.status, 200);
       assert.equal(
-        resolveRes.body.request.resolutionNotes,
+        notesRes.body.request.resolutionNotes,
         'Configured Vite proxy ws: true option in vite.config.js to support upgrade headers.'
       );
+
+      // Student closes session with verified rating
+      const resolveRes = await request(app)
+        .post(`/api/requests/${waitDoc._id}/close`)
+        .set('Cookie', studentCookie)
+        .send({ rating: 5, comment: 'Thank you for explaining the proxy headers!' });
+
+      assert.equal(resolveRes.status, 200);
+      assert.equal(resolveRes.body.request.status, 'resolved');
+      assert.equal(resolveRes.body.request.feedback.rating, 5);
       assert(resolveRes.body.request.resolvedAt);
     });
 
     test('student submits verified feedback with rating and comment for resolved session', async () => {
-      const resolvedDoc = await HelpRequest.findOne({
-        status: 'resolved',
+      // Create a dedicated resolved request without feedback to test /feedback endpoint
+      const resolvedDoc = await HelpRequest.create({
         student: studentUser.id,
+        topic: 'Algorithm complexity review',
+        description: 'Need review on Dijkstra heap asymptotic bound.',
+        category: 'dsa',
+        status: 'resolved',
+        mentor: mentorUser._id || mentorUser.id,
+        resolutionNotes: 'Walked through master theorem and binary heap decrease-key complexity.',
+        resolvedAt: new Date(),
+        feedback: { rating: null, comment: '' },
       });
       assert(resolvedDoc);
 
@@ -1059,6 +1083,372 @@ describe('LabLine Full-Stack API Test Suite', () => {
         assert(waitingReq.intelligence);
         assert(['insufficient_data', 'no_mentors_available', 'moderate', 'high'].includes(waitingReq.intelligence.confidence));
       }
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // INTERACTIVE DOUBT CONVERSATION & CLOSURE FLOW
+  // -------------------------------------------------------------------------
+  describe('Interactive Doubt Conversation & Closure Flow', () => {
+    let studentCookie;
+    let otherStudentCookie;
+    let mentorCookie;
+    let otherMentorCookie;
+    let studentUser;
+    let otherStudentUser;
+    let mentorUser;
+    let otherMentorUser;
+
+    before(async () => {
+      // Create student 1
+      const s1Res = await request(app).post('/api/auth/register').send({
+        name: 'Arjun Verma',
+        email: 'arjun.verma@college.edu',
+        password: 'Password123!',
+      });
+      studentCookie = s1Res.headers['set-cookie'][0];
+      studentUser = s1Res.body.user;
+
+      // Create student 2
+      const s2Res = await request(app).post('/api/auth/register').send({
+        name: 'Rohan Sharma',
+        email: 'rohan.sharma@college.edu',
+        password: 'Password123!',
+      });
+      otherStudentCookie = s2Res.headers['set-cookie'][0];
+      otherStudentUser = s2Res.body.user;
+
+      // Configure teacher invite code
+      const CONVO_TEACHER_CODE = 'LL-TEST-INVITE-SECURE-KEY-440';
+      config.teacherInviteCode = CONVO_TEACHER_CODE;
+      process.env.TEACHER_INVITE_CODE = CONVO_TEACHER_CODE;
+
+      // Create mentor 1
+      const m1Res = await request(app).post('/api/auth/register').send({
+        name: 'Prof Sneha Desai',
+        email: 'sneha.desai@college.edu',
+        password: 'Password123!',
+        accountType: 'teacher',
+        inviteCode: CONVO_TEACHER_CODE,
+      });
+      assert.equal(m1Res.status, 201);
+      mentorCookie = m1Res.headers['set-cookie'][0];
+      mentorUser = m1Res.body.user;
+
+      // Create mentor 2
+      const m2Res = await request(app).post('/api/auth/register').send({
+        name: 'Prof Vivek Joshi',
+        email: 'vivek.joshi@college.edu',
+        password: 'Password123!',
+        accountType: 'teacher',
+        inviteCode: CONVO_TEACHER_CODE,
+      });
+      assert.equal(m2Res.status, 201);
+      otherMentorCookie = m2Res.headers['set-cookie'][0];
+      otherMentorUser = m2Res.body.user;
+    });
+
+    test('full conversation flow: submit doubt -> accept -> reply -> follow-up -> reply -> student close & rating', async () => {
+      // 1. Student creates request
+      const createRes = await request(app)
+        .post('/api/requests')
+        .set('Cookie', studentCookie)
+        .send({
+          topic: 'Segmentation fault in binary tree destructor',
+          description: 'Recursion runs infinitely on circular pointer cycles.',
+          category: 'dsa',
+          codeSnippet: 'void ~Tree() { delete left; delete right; }',
+        });
+      assert.equal(createRes.status, 201);
+      const reqId = createRes.body.request._id;
+
+      // Cannot post message before a mentor accepts it (409 Conflict)
+      const prematureMsgRes = await request(app)
+        .post(`/api/requests/${reqId}/messages`)
+        .set('Cookie', studentCookie)
+        .send({ content: 'Any updates?' });
+      assert.equal(prematureMsgRes.status, 409);
+
+      // 2. Mentor accepts request
+      const claimRes = await request(app)
+        .post(`/api/requests/${reqId}/claim`)
+        .set('Cookie', mentorCookie);
+      assert.equal(claimRes.status, 200);
+      assert.equal(claimRes.body.request.status, 'claimed');
+
+      // 3. Mentor posts initial reply
+      const mentorReply1 = await request(app)
+        .post(`/api/requests/${reqId}/messages`)
+        .set('Cookie', mentorCookie)
+        .send({
+          content: 'Inspect whether nodes are doubly linked or have parent pointers. If so, recursive delete causes cyclic destruction.',
+        });
+      assert.equal(mentorReply1.status, 201);
+      assert.equal(mentorReply1.body.request.status, 'awaiting_student');
+      assert.equal(mentorReply1.body.request.messages.length, 1);
+      assert.equal(mentorReply1.body.newMessage.senderRole, 'mentor');
+
+      // 4. Student posts follow-up message
+      const studentFollowup = await request(app)
+        .post(`/api/requests/${reqId}/messages`)
+        .set('Cookie', studentCookie)
+        .send({
+          content: 'You were right! The parent pointer was also deleting the child. How should I nullify the parent reference before delete?',
+        });
+      assert.equal(studentFollowup.status, 201);
+      assert.equal(studentFollowup.body.request.status, 'awaiting_mentor');
+      assert.equal(studentFollowup.body.request.messages.length, 2);
+      assert.equal(studentFollowup.body.newMessage.senderRole, 'student');
+
+      // 5. Mentor posts second reply
+      const mentorReply2 = await request(app)
+        .post(`/api/requests/${reqId}/messages`)
+        .set('Cookie', mentorCookie)
+        .send({
+          content: 'Clear the parent pointer by setting parent = nullptr before calling delete, or use std::unique_ptr for children and std::weak_ptr for parents.',
+        });
+      assert.equal(mentorReply2.status, 201);
+      assert.equal(mentorReply2.body.request.status, 'awaiting_student');
+      assert.equal(mentorReply2.body.request.messages.length, 3);
+
+      // Verify request details return full message thread
+      const detailsRes = await request(app)
+        .get(`/api/requests/${reqId}`)
+        .set('Cookie', studentCookie);
+      assert.equal(detailsRes.status, 200);
+      assert.equal(detailsRes.body.request.messages.length, 3);
+      assert.equal(detailsRes.body.request.messages[0].senderRole, 'mentor');
+      assert.equal(detailsRes.body.request.messages[1].senderRole, 'student');
+      assert.equal(detailsRes.body.request.messages[2].senderRole, 'mentor');
+
+      // 6. Student closes session with rating & feedback
+      const closeRes = await request(app)
+        .post(`/api/requests/${reqId}/close`)
+        .set('Cookie', studentCookie)
+        .send({
+          rating: 5,
+          comment: 'Perfect explanation of smart pointers and cyclic references!',
+        });
+      assert.equal(closeRes.status, 200);
+      assert.equal(closeRes.body.request.status, 'resolved');
+      assert.equal(closeRes.body.request.feedback.rating, 5);
+      assert.equal(closeRes.body.request.feedback.comment, 'Perfect explanation of smart pointers and cyclic references!');
+      assert(closeRes.body.request.resolvedAt);
+
+      // Cannot post message after request is resolved (409 Conflict)
+      const postClosedRes = await request(app)
+        .post(`/api/requests/${reqId}/messages`)
+        .set('Cookie', studentCookie)
+        .send({ content: 'One more thing...' });
+      assert.equal(postClosedRes.status, 409);
+    });
+
+    test('attempt by an unassigned mentor to post a reply is rejected (403 Forbidden)', async () => {
+      // Student creates request
+      const createRes = await request(app)
+        .post('/api/requests')
+        .set('Cookie', studentCookie)
+        .send({
+          topic: 'CSS grid overflow issue',
+          description: 'Grid item expands past viewport width.',
+          category: 'frontend',
+        });
+      const reqId = createRes.body.request._id;
+
+      // Mentor 1 claims it
+      await request(app)
+        .post(`/api/requests/${reqId}/claim`)
+        .set('Cookie', mentorCookie);
+
+      // Mentor 2 (unassigned) tries to post reply
+      const unassignedReply = await request(app)
+        .post(`/api/requests/${reqId}/messages`)
+        .set('Cookie', otherMentorCookie)
+        .send({ content: 'Try minmax(0, 1fr).' });
+      assert.equal(unassignedReply.status, 403);
+      assert(unassignedReply.body.message.includes('Only the mentor assigned'));
+    });
+
+    test('attempt by a student to post a reply to someone else request is rejected (403 Forbidden)', async () => {
+      // Student 1 creates request
+      const createRes = await request(app)
+        .post('/api/requests')
+        .set('Cookie', studentCookie)
+        .send({
+          topic: 'Database connection pool exhausted',
+          description: 'Max 100 connections reached during peak load.',
+          category: 'database',
+        });
+      const reqId = createRes.body.request._id;
+
+      // Mentor claims it
+      await request(app)
+        .post(`/api/requests/${reqId}/claim`)
+        .set('Cookie', mentorCookie);
+
+      // Student 2 tries to post to Student 1 request
+      const rogueStudentReply = await request(app)
+        .post(`/api/requests/${reqId}/messages`)
+        .set('Cookie', otherStudentCookie)
+        .send({ content: 'I have the same problem!' });
+      assert.equal(rogueStudentReply.status, 403);
+      assert(rogueStudentReply.body.message.includes('only post follow-ups to your own'));
+    });
+
+    test('attempt by a mentor to close the request is rejected (403 Forbidden)', async () => {
+      const createRes = await request(app)
+        .post('/api/requests')
+        .set('Cookie', studentCookie)
+        .send({
+          topic: 'Express CORS preflight issue',
+          description: 'OPTIONS request returns 404.',
+          category: 'backend',
+        });
+      const reqId = createRes.body.request._id;
+
+      await request(app)
+        .post(`/api/requests/${reqId}/claim`)
+        .set('Cookie', mentorCookie);
+
+      // Mentor attempts to call student-only /close endpoint (403 Forbidden by role check)
+      const mentorCloseCall = await request(app)
+        .post(`/api/requests/${reqId}/close`)
+        .set('Cookie', mentorCookie)
+        .send({ rating: 5 });
+      assert.equal(mentorCloseCall.status, 403);
+
+      // Mentor attempts to transition to resolved via status endpoint (403 Forbidden)
+      const mentorStatusCall = await request(app)
+        .patch(`/api/requests/${reqId}/status`)
+        .set('Cookie', mentorCookie)
+        .send({ status: 'resolved' });
+      assert.equal(mentorStatusCall.status, 403);
+      assert(mentorStatusCall.body.message.includes('Mentors cannot close sessions'));
+    });
+
+    test('attempt to submit feedback on an unclosed or already-closed request is rejected (409 Conflict)', async () => {
+      const createRes = await request(app)
+        .post('/api/requests')
+        .set('Cookie', studentCookie)
+        .send({
+          topic: 'Docker container port mapping',
+          description: 'Cannot reach container on localhost:3000.',
+          category: 'environment',
+        });
+      const reqId = createRes.body.request._id;
+
+      // Unclosed request feedback attempt (409 Conflict)
+      const unclosedFeedback = await request(app)
+        .post(`/api/requests/${reqId}/feedback`)
+        .set('Cookie', studentCookie)
+        .send({ rating: 5, comment: 'Nice' });
+      assert.equal(unclosedFeedback.status, 409);
+
+      // Claim and close properly
+      await request(app)
+        .post(`/api/requests/${reqId}/claim`)
+        .set('Cookie', mentorCookie);
+
+      const closeRes = await request(app)
+        .post(`/api/requests/${reqId}/close`)
+        .set('Cookie', studentCookie)
+        .send({ rating: 4, comment: 'Good session' });
+      assert.equal(closeRes.status, 200);
+
+      // Duplicate close attempt (409 Conflict)
+      const dupCloseRes = await request(app)
+        .post(`/api/requests/${reqId}/close`)
+        .set('Cookie', studentCookie)
+        .send({ rating: 5 });
+      assert.equal(dupCloseRes.status, 409);
+
+      // Duplicate feedback submission (409 Conflict)
+      const dupFeedbackRes = await request(app)
+        .post(`/api/requests/${reqId}/feedback`)
+        .set('Cookie', studentCookie)
+        .send({ rating: 5, comment: 'Double rating' });
+      assert.equal(dupFeedbackRes.status, 409);
+    });
+
+    test('attempt to submit invalid ratings (< 1, > 5, non-integer) is rejected (422 Unprocessable Entity)', async () => {
+      const createRes = await request(app)
+        .post('/api/requests')
+        .set('Cookie', studentCookie)
+        .send({
+          topic: 'Git detached HEAD state',
+          description: 'Committed to checkout commit hash.',
+          category: 'other',
+        });
+      const reqId = createRes.body.request._id;
+
+      await request(app)
+        .post(`/api/requests/${reqId}/claim`)
+        .set('Cookie', mentorCookie);
+
+      // Rating = 0 (< 1)
+      const lowRatingRes = await request(app)
+        .post(`/api/requests/${reqId}/close`)
+        .set('Cookie', studentCookie)
+        .send({ rating: 0 });
+      assert.equal(lowRatingRes.status, 422);
+
+      // Rating = 6 (> 5)
+      const highRatingRes = await request(app)
+        .post(`/api/requests/${reqId}/close`)
+        .set('Cookie', studentCookie)
+        .send({ rating: 6 });
+      assert.equal(highRatingRes.status, 422);
+
+      // Non-integer rating (3.5)
+      const floatRatingRes = await request(app)
+        .post(`/api/requests/${reqId}/close`)
+        .set('Cookie', studentCookie)
+        .send({ rating: 3.5 });
+      assert.equal(floatRatingRes.status, 422);
+
+      // Non-numeric rating string ("five")
+      const strRatingRes = await request(app)
+        .post(`/api/requests/${reqId}/close`)
+        .set('Cookie', studentCookie)
+        .send({ rating: 'five' });
+      assert.equal(strRatingRes.status, 422);
+
+      // Missing rating
+      const missingRatingRes = await request(app)
+        .post(`/api/requests/${reqId}/close`)
+        .set('Cookie', studentCookie)
+        .send({});
+      assert.equal(missingRatingRes.status, 422);
+    });
+
+    test('message validation: empty message or message exceeding 2000 chars is rejected (422)', async () => {
+      const createRes = await request(app)
+        .post('/api/requests')
+        .set('Cookie', studentCookie)
+        .send({
+          topic: 'Array index out of bounds in quicksort',
+          description: 'Partition function crashes on single-element partition.',
+          category: 'dsa',
+        });
+      const reqId = createRes.body.request._id;
+
+      await request(app)
+        .post(`/api/requests/${reqId}/claim`)
+        .set('Cookie', mentorCookie);
+
+      // Empty string
+      const emptyRes = await request(app)
+        .post(`/api/requests/${reqId}/messages`)
+        .set('Cookie', mentorCookie)
+        .send({ content: '   ' });
+      assert.equal(emptyRes.status, 422);
+
+      // Over 2000 chars
+      const overlongRes = await request(app)
+        .post(`/api/requests/${reqId}/messages`)
+        .set('Cookie', mentorCookie)
+        .send({ content: 'a'.repeat(2001) });
+      assert.equal(overlongRes.status, 422);
     });
   });
 });

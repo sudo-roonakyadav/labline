@@ -57,3 +57,13 @@ export function emitQueueChange(action = 'update') {
   }
 }
 
+// Broadcast new message event for active sessions
+export function emitRequestMessage(requestId, messageData) {
+  if (ioInstance) {
+    ioInstance.emit('request:message', {
+      requestId: requestId.toString(),
+      message: messageData,
+      timestamp: new Date().toISOString(),
+    });
+  }
+}

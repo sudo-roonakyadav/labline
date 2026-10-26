@@ -1,5 +1,40 @@
 import mongoose from 'mongoose';
 
+const messageSchema = new mongoose.Schema(
+  {
+    sender: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: [true, 'Message sender reference is required'],
+    },
+    senderRole: {
+      type: String,
+      enum: {
+        values: ['student', 'mentor'],
+        message: '{VALUE} is not a valid message sender role',
+      },
+      required: [true, 'Message sender role is required'],
+    },
+    senderName: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    content: {
+      type: String,
+      required: [true, 'Message content is required'],
+      trim: true,
+      minlength: [1, 'Message cannot be empty'],
+      maxlength: [2000, 'Message cannot exceed 2000 characters'],
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+  { _id: true }
+);
+
 const helpRequestSchema = new mongoose.Schema(
   {
     student: {
@@ -41,7 +76,7 @@ const helpRequestSchema = new mongoose.Schema(
     status: {
       type: String,
       enum: {
-        values: ['waiting', 'claimed', 'in_progress', 'resolved', 'cancelled'],
+        values: ['waiting', 'claimed', 'in_progress', 'awaiting_mentor', 'awaiting_student', 'resolved', 'cancelled'],
         message: '{VALUE} is not a valid status',
       },
       default: 'waiting',
@@ -53,6 +88,10 @@ const helpRequestSchema = new mongoose.Schema(
       ref: 'User',
       default: null,
       index: true,
+    },
+    messages: {
+      type: [messageSchema],
+      default: [],
     },
     resolutionNotes: {
       type: String,
