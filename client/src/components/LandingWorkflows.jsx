@@ -84,7 +84,7 @@ export default function LandingWorkflows({ onOpenAuth }) {
               <button
                 type="button"
                 className="btn-signal-outline"
-                onClick={() => onOpenAuth('register')}
+                onClick={() => onOpenAuth('register', 'student')}
               >
                 CREATE STUDENT ACCOUNT →
               </button>
@@ -126,9 +126,9 @@ export default function LandingWorkflows({ onOpenAuth }) {
               <button
                 type="button"
                 className="btn-ghost"
-                onClick={() => onOpenAuth('login')}
+                onClick={() => onOpenAuth('register', 'teacher')}
               >
-                MENTOR LOGIN ACCESS →
+                REGISTER AS TEACHER →
               </button>
             </div>
           </div>

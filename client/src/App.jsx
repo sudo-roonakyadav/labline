@@ -25,6 +25,13 @@ export default function App() {
   const [activeView, setActiveView] = useState('landing');
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState('login');
+  const [authModalAccountType, setAuthModalAccountType] = useState(null);
+
+  const handleOpenAuth = (mode = 'login', accountType = null) => {
+    setAuthModalMode(mode);
+    setAuthModalAccountType(accountType);
+    setAuthModalOpen(true);
+  };
 
   // Secondary Tab in Workspace (if applicable): 'workbench' | 'diagnostics'
   const [activeTab, setActiveTab] = useState('workbench');
@@ -560,10 +567,7 @@ export default function App() {
         socketConnected={socketConnected}
         activeView={activeView}
         setActiveView={setActiveView}
-        onOpenAuth={(mode) => {
-          setAuthModalMode(mode);
-          setAuthModalOpen(true);
-        }}
+        onOpenAuth={handleOpenAuth}
         onLogout={handleLogout}
       />
 
@@ -572,10 +576,7 @@ export default function App() {
           <main>
             <LandingHero
               currentUser={currentUser}
-              onOpenAuth={(mode) => {
-                setAuthModalMode(mode);
-                setAuthModalOpen(true);
-              }}
+              onOpenAuth={handleOpenAuth}
               onEnterWorkspace={() => setActiveView('workspace')}
             />
 
@@ -592,12 +593,7 @@ export default function App() {
               </section>
             </div>
 
-            <LandingWorkflows
-              onOpenAuth={(mode) => {
-                setAuthModalMode(mode);
-                setAuthModalOpen(true);
-              }}
-            />
+            <LandingWorkflows onOpenAuth={handleOpenAuth} />
           </main>
           <Footer onOpenDiagnostics={() => setActiveView('diagnostics')} />
         </>
@@ -747,105 +743,44 @@ export default function App() {
             /* UNAUTHENTICATED AUTH VIEW                                         */
             /* ----------------------------------------------------------------- */
             <div className="auth-wrapper">
-              <div className="section-card">
-                <div className="auth-header-toggle">
-                  <button
-                    type="button"
-                    className={`auth-toggle-btn ${authMode === 'login' ? 'active' : ''}`}
-                    onClick={() => {
-                      setAuthMode('login');
-                      setAuthError(null);
-                    }}
-                  >
-                    Sign In
-                  </button>
-                  <button
-                    type="button"
-                    className={`auth-toggle-btn ${authMode === 'register' ? 'active' : ''}`}
-                    onClick={() => {
-                      setAuthMode('register');
-                      setAuthError(null);
-                    }}
-                  >
-                    Register Student Account
-                  </button>
+              <div className="section-card" style={{ maxWidth: '460px', margin: '48px auto', textAlign: 'center' }}>
+                <div className="section-card-header font-mono" style={{ justifyContent: 'center' }}>
+                  <span>00 // OPERATIONAL GATEWAY</span>
                 </div>
-
-                <div className="section-card-body">
-                  {authError && <div className="alert-banner error">{authError}</div>}
-                  {authSuccess && <div className="alert-banner success">{authSuccess}</div>}
-
-                  <form onSubmit={handleAuthSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                    {authMode === 'register' && (
-                      <div className="form-group">
-                        <label className="form-label" htmlFor="auth-name">
-                          Full Name
-                        </label>
-                        <input
-                          id="auth-name"
-                          type="text"
-                          className="form-input"
-                          placeholder="e.g. Ronak Yadav"
-                          required
-                          value={authForm.name}
-                          onChange={(e) => setAuthForm({ ...authForm, name: e.target.value })}
-                          disabled={authSubmitting}
-                        />
-                        <span className="form-hint">2 to 60 characters</span>
-                      </div>
-                    )}
-
-                    <div className="form-group">
-                      <label className="form-label" htmlFor="auth-email">
-                        Academic Email
-                      </label>
-                      <input
-                        id="auth-email"
-                        type="email"
-                        className="form-input"
-                        placeholder="student@scaler.com"
-                        required
-                        value={authForm.email}
-                        onChange={(e) => setAuthForm({ ...authForm, email: e.target.value })}
-                        disabled={authSubmitting}
-                      />
-                    </div>
-
-                    <div className="form-group">
-                      <label className="form-label" htmlFor="auth-password">
-                        Password
-                      </label>
-                      <input
-                        id="auth-password"
-                        type="password"
-                        className="form-input"
-                        placeholder="Minimum 8 characters"
-                        required
-                        value={authForm.password}
-                        onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })}
-                        disabled={authSubmitting}
-                      />
-                    </div>
-
-                    <div style={{ marginTop: '6px' }}>
-                      <button
-                        type="submit"
-                        className="btn btn-primary"
-                        style={{ width: '100%' }}
-                        disabled={authSubmitting}
-                      >
-                        {authSubmitting
-                          ? 'Processing...'
-                          : authMode === 'login'
-                          ? 'Sign In'
-                          : 'Create Student Account'}
-                      </button>
-                    </div>
-                  </form>
-
-                  <div className="form-hint" style={{ marginTop: '8px', lineHeight: 1.5 }}>
-                    Mentor privileges cannot be self-selected during registration. Accounts can be promoted by an administrator via the CLI utility.
+                <div className="section-card-body" style={{ padding: '32px 24px', display: 'flex', flexDirection: 'column', gap: '16px', alignItems: 'center' }}>
+                  <div style={{ fontSize: '28px' }}>⚡</div>
+                  <h2 className="font-display" style={{ fontSize: '20px', color: 'var(--color-warm-white)' }}>
+                    Authentication Required
+                  </h2>
+                  <p style={{ fontSize: '13px', color: 'var(--color-neutral)', lineHeight: 1.5 }}>
+                    Please sign in or register to access your personal Signal Desk or Mentor Radar Desk.
+                  </p>
+                  <div style={{ display: 'flex', gap: '12px', width: '100%', marginTop: '6px' }}>
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      style={{ flex: 1, padding: '10px' }}
+                      onClick={() => handleOpenAuth('login')}
+                    >
+                      Sign In
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-signal"
+                      style={{ flex: 1, padding: '10px' }}
+                      onClick={() => handleOpenAuth('register')}
+                    >
+                      Register →
+                    </button>
                   </div>
+                  <button
+                    type="button"
+                    className="font-mono"
+                    style={{ background: 'transparent', border: 'none', color: 'var(--color-neutral-muted)', fontSize: '11px', cursor: 'pointer', marginTop: '6px' }}
+                    onClick={() => setActiveView('landing')}
+                  >
+                    ← Return to Landing Overview
+                  </button>
                 </div>
               </div>
             </div>
@@ -885,6 +820,7 @@ export default function App() {
   <AuthModal
     isOpen={authModalOpen}
     initialMode={authModalMode}
+    initialAccountType={authModalAccountType}
     onClose={() => setAuthModalOpen(false)}
     onSuccess={(user) => {
       setCurrentUser(user);

@@ -1123,6 +1123,324 @@ body {
   padding-top: 12px;
 }
 
+/* Dual Registration & Account Architecture Selection */
+.auth-card.auth-card-wide {
+  max-width: 700px;
+}
+
+.auth-step-container {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: authStepFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes authStepFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.auth-step-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+
+.auth-step-meta .step-tag {
+  color: var(--color-signal);
+  font-weight: 700;
+}
+
+.auth-step-meta .step-sub {
+  color: var(--color-neutral-muted);
+}
+
+.auth-step-title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--color-warm-white);
+  line-height: 1.2;
+}
+
+.auth-step-intro {
+  font-size: 13px;
+  color: var(--color-neutral);
+  line-height: 1.5;
+}
+
+.account-selection-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin: 6px 0 10px;
+}
+
+@media (max-width: 640px) {
+  .account-selection-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+}
+
+.account-choice-panel {
+  background-color: var(--color-ink-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xs);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+  position: relative;
+  text-align: left;
+}
+
+.account-choice-panel:hover {
+  border-color: var(--color-signal);
+  background-color: var(--color-charcoal);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.account-choice-panel.teacher-panel:hover {
+  border-color: var(--color-active-blue);
+}
+
+.account-choice-panel:focus-visible {
+  outline: 2px solid var(--color-signal);
+  outline-offset: 2px;
+}
+
+.choice-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.choice-panel-badge {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--color-neutral);
+  font-weight: 700;
+}
+
+.choice-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.choice-dot.student {
+  background-color: var(--color-signal);
+  box-shadow: 0 0 8px rgba(214, 255, 85, 0.4);
+}
+
+.invite-tag {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--color-active-blue);
+  background-color: var(--color-active-bg);
+  border: 1px solid var(--color-active-border);
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  font-weight: 700;
+}
+
+.choice-illustration-wrap {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.choice-svg {
+  width: 56px;
+  height: 56px;
+  transition: transform 0.2s ease;
+}
+
+.account-choice-panel:hover .choice-svg {
+  transform: scale(1.05);
+}
+
+.choice-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--color-warm-white);
+  margin-bottom: 4px;
+}
+
+.choice-summary {
+  font-size: 11px;
+  color: var(--color-neutral-muted);
+  margin-bottom: 12px;
+  line-height: 1.45;
+}
+
+.choice-feature-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+  font-size: 11px;
+  color: var(--color-warm-white);
+}
+
+.choice-feature-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  line-height: 1.4;
+}
+
+.feature-bullet {
+  color: var(--color-signal);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.choice-action-bar {
+  border-top: 1px solid var(--color-border);
+  padding-top: 12px;
+  margin-top: auto;
+}
+
+.choice-cta-text {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-signal);
+  display: inline-block;
+  letter-spacing: 0.04em;
+}
+
+.account-choice-panel.teacher-panel .choice-cta-text {
+  color: var(--color-active-blue);
+}
+
+.auth-form-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2px;
+}
+
+.auth-back-btn {
+  background: transparent;
+  border: none;
+  color: var(--color-neutral);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 4px 0;
+  transition: color 0.15s ease;
+  letter-spacing: 0.04em;
+}
+
+.auth-back-btn:hover {
+  color: var(--color-signal);
+}
+
+.identity-badge {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  padding: 3px 8px;
+  border-radius: var(--radius-xs);
+  font-weight: 700;
+}
+
+.identity-badge.student {
+  color: var(--color-signal);
+  background-color: var(--color-signal-bg);
+  border: 1px solid var(--color-signal-border);
+}
+
+.identity-badge.teacher {
+  color: var(--color-active-blue);
+  background-color: var(--color-active-bg);
+  border: 1px solid var(--color-active-border);
+}
+
+.teacher-invitation-box {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 14px;
+  background-color: var(--color-ink);
+  border: 1px solid var(--color-active-border);
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+  color: var(--color-neutral);
+  line-height: 1.5;
+}
+
+.teacher-invitation-box .notice-icon {
+  color: var(--color-active-blue);
+  font-weight: 700;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.auth-footer-prompt {
+  font-size: 12px;
+  color: var(--color-neutral-muted);
+  text-align: center;
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.auth-link-inline {
+  background: transparent;
+  border: none;
+  color: var(--color-signal);
+  cursor: pointer;
+  text-decoration: underline;
+  font-size: 12px;
+  padding: 0;
+  transition: color 0.15s ease;
+}
+
+.auth-link-inline:hover {
+  color: var(--color-warm-white);
+}
+
+/* Reduced motion overrides for dual registration */
+@media (prefers-reduced-motion: reduce) {
+  .auth-step-container {
+    animation: none !important;
+  }
+  .account-choice-panel {
+    transition: none !important;
+    transform: none !important;
+  }
+  .account-choice-panel:hover {
+    transform: none !important;
+  }
+  .choice-svg {
+    transition: none !important;
+    transform: none !important;
+  }
+  .account-choice-panel:hover .choice-svg {
+    transform: none !important;
+  }
+}
+
 /* ==========================================================================
    SITE FOOTER
    ========================================================================== */

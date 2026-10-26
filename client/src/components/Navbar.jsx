@@ -75,7 +75,7 @@ export default function Navbar({
                 className="btn-signal"
                 onClick={() => onOpenAuth('register')}
               >
-                Register Student
+                Register
               </button>
             </div>
           )}
