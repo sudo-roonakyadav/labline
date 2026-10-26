@@ -162,9 +162,9 @@ export default function MentorWorkspace({
       <div className="page-header">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
           <div>
-            <h1 className="page-heading">Mentor Signal Console</h1>
+            <h1 className="page-heading">Mentor Dashboard</h1>
             <p className="page-subheading">
-              Real-time engineering doubt triage. Claim signals from the FIFO queue, conduct 1:1 sessions, and record diagnostic resolution summaries.
+              Real-time engineering doubt triage. Accept requests from the FIFO queue, conduct interactive sessions, and review student feedback.
             </p>
           </div>
 
@@ -173,7 +173,7 @@ export default function MentorWorkspace({
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span className={`pulse-dot ${isMentorAvailable ? 'active' : ''}`} style={{ width: 8, height: 8 }} />
               <span className="availability-label">
-                {isMentorAvailable ? 'AVAILABLE FOR SIGNALS' : 'AWAY / IN DEEP WORK'}
+                {isMentorAvailable ? 'AVAILABLE FOR REQUESTS' : 'AWAY / BUSY'}
               </span>
             </div>
             <button
@@ -195,14 +195,14 @@ export default function MentorWorkspace({
             className={`subnav-tab-btn ${viewTab === 'live_desk' ? 'active' : ''}`}
             onClick={() => setViewTab('live_desk')}
           >
-            Live Signal Desk ({waitingRequests.length + myAssignedRequests.length})
+            Live Desk ({waitingRequests.length + myAssignedRequests.length})
           </button>
           <button
             type="button"
             className={`subnav-tab-btn ${viewTab === 'session_history' ? 'active' : ''}`}
             onClick={() => setViewTab('session_history')}
           >
-            Resolved Sessions &amp; Feedback
+            Session History &amp; Feedback
           </button>
         </div>
 
@@ -225,7 +225,7 @@ export default function MentorWorkspace({
             <span className="telemetry-metric-val">
               {queueIntelligence?.averageResolutionMinutes
                 ? `~${queueIntelligence.averageResolutionMinutes}m`
-                : 'Calibrating'}
+                : 'Calculating...'}
             </span>
           </div>
         </div>
@@ -243,7 +243,7 @@ export default function MentorWorkspace({
           <div className="section-card">
             <div className="section-card-header">
               <span className="section-card-title">
-                Waiting Signals ({filteredWaitingQueue.length} / {waitingRequests.length})
+                Waiting Requests ({filteredWaitingQueue.length} / {waitingRequests.length})
               </span>
               <button
                 type="button"
@@ -282,11 +282,14 @@ export default function MentorWorkspace({
                 </div>
 
                 <div className="search-input-wrap">
-                  <span className="search-icon">🔍</span>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="search-icon" aria-hidden="true" style={{ color: 'var(--color-neutral-muted)' }}>
+                    <circle cx="11" cy="11" r="8" />
+                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                  </svg>
                   <input
                     type="text"
                     className="search-input"
-                    placeholder="Search signals..."
+                    placeholder="Search requests..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                   />
@@ -298,8 +301,8 @@ export default function MentorWorkspace({
                   <div className="empty-box-title">Queue is clear</div>
                   <div className="empty-box-desc">
                     {selectedCategory !== 'all'
-                      ? `No waiting signals in category "${selectedCategory}".`
-                      : 'No students are currently waiting for assistance. Incoming signals will appear automatically in real-time.'}
+                      ? `No waiting requests in category "${selectedCategory}".`
+                      : 'No students are currently waiting for assistance. Incoming requests will appear automatically in real-time.'}
                   </div>
                 </div>
               ) : (
@@ -323,7 +326,7 @@ export default function MentorWorkspace({
                           className="btn btn-primary"
                           onClick={() => onClaimRequest(req._id)}
                         >
-                          Claim Signal
+                          Accept request
                         </button>
                       </div>
 
@@ -510,7 +513,7 @@ export default function MentorWorkspace({
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                         {item.feedback?.rating ? (
                           <span className="history-feedback-badge">
-                            ★ {item.feedback.rating}/5
+                            Rating: {item.feedback.rating}/5
                           </span>
                         ) : (
                           <span style={{ fontSize: 11, color: 'var(--color-neutral-muted)' }}>
@@ -557,10 +560,10 @@ export default function MentorWorkspace({
               <span className="modal-title">Complete &amp; Resolve Session</span>
               <button
                 type="button"
-                className="modal-close-btn"
+                className="modal-close-btn font-mono"
                 onClick={handleCloseResolutionModal}
               >
-                ✕
+                [ESC]
               </button>
             </div>
 

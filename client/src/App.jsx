@@ -21,7 +21,7 @@ function formatDuration(dateString) {
 }
 
 export default function App() {
-  // Primary View Mode: 'landing' | 'workspace' | 'diagnostics'
+  // Primary View Mode: 'landing' | 'workspace'
   const [activeView, setActiveView] = useState('landing');
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState('login');
@@ -32,9 +32,6 @@ export default function App() {
     setAuthModalAccountType(accountType);
     setAuthModalOpen(true);
   };
-
-  // Secondary Tab in Workspace (if applicable): 'workbench' | 'diagnostics'
-  const [activeTab, setActiveTab] = useState('workbench');
 
   // Authentication State
   const [currentUser, setCurrentUser] = useState(null);
@@ -58,19 +55,8 @@ export default function App() {
   const [queueActionError, setQueueActionError] = useState(null);
   const [queueIntelligence, setQueueIntelligence] = useState(null);
 
-  // Diagnostics State
-  const [healthData, setHealthData] = useState(null);
-  const [healthLoading, setHealthLoading] = useState(false);
-  const [healthError, setHealthError] = useState(null);
-  const [healthLatency, setHealthLatency] = useState(null);
-  const [lastChecked, setLastChecked] = useState(null);
-
-  // WebSocket State
+  // Real-time WebSocket State
   const [socketConnected, setSocketConnected] = useState(false);
-  const [socketId, setSocketId] = useState(null);
-  const [socketTransport, setSocketTransport] = useState(null);
-  const [socketPingLatency, setSocketPingLatency] = useState(null);
-  const [telemetryLogs, setTelemetryLogs] = useState([]);
   const socketRef = useRef(null);
 
   // Lifecycle & Concurrency Stability Refs
@@ -92,48 +78,9 @@ export default function App() {
     };
   }, []);
 
-  const addLog = useCallback((source, message, level = 'info') => {
-    const timestamp = new Date().toISOString().substring(11, 23);
-    const id = `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-    setTelemetryLogs((prev) => [{ id, timestamp, source, message, level }, ...prev.slice(0, 49)]);
-  }, []);
-
   // -------------------------------------------------------------------------
   // API FETCHERS
   // -------------------------------------------------------------------------
-
-  const fetchHealth = useCallback(async () => {
-    setHealthLoading(true);
-    const startTime = performance.now();
-    try {
-      const res = await fetch('/api/health', { cache: 'no-store' });
-      const latency = Math.round(performance.now() - startTime);
-      if (!isMountedRef.current) return;
-
-      setHealthLatency(latency);
-      setLastChecked(new Date().toLocaleTimeString());
-
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status} ${res.statusText}`);
-      }
-
-      const json = await res.json();
-      if (!isMountedRef.current) return;
-
-      setHealthData(json);
-      setHealthError(null);
-      addLog('HTTP', `GET /api/health -> ${res.status} OK (${latency}ms)`, 'success');
-    } catch (err) {
-      if (!isMountedRef.current) return;
-      setHealthError(err.message);
-      setHealthData(null);
-      addLog('HTTP', `GET /api/health failed: ${err.message}`, 'error');
-    } finally {
-      if (isMountedRef.current) {
-        setHealthLoading(false);
-      }
-    }
-  }, [addLog]);
 
   const checkSession = useCallback(async () => {
     setAuthLoading(true);
@@ -149,7 +96,6 @@ export default function App() {
         if (!isMountedRef.current) return;
         setCurrentUser(data.user);
         setActiveView('workspace');
-        addLog('AUTH', `Restored session for ${data.user.email} (${data.user.role})`, 'success');
       } else {
         setCurrentUser(null);
         setActiveView('landing');
@@ -164,7 +110,7 @@ export default function App() {
         setAuthLoading(false);
       }
     }
-  }, [addLog]);
+  }, []);
 
   const fetchMyRequests = useCallback(async () => {
     setMyRequestsLoading(true);
@@ -190,14 +136,13 @@ export default function App() {
     } catch (err) {
       if (isMountedRef.current) {
         setRequestError(err.message);
-        addLog('API', `Failed to load student requests: ${err.message}`, 'error');
       }
     } finally {
       if (isMountedRef.current) {
         setMyRequestsLoading(false);
       }
     }
-  }, [addLog]);
+  }, []);
 
   const fetchQueue = useCallback(async () => {
     setMentorQueueLoading(true);
@@ -223,14 +168,13 @@ export default function App() {
     } catch (err) {
       if (isMountedRef.current) {
         setQueueActionError(err.message);
-        addLog('API', `Failed to load mentor queue: ${err.message}`, 'error');
       }
     } finally {
       if (isMountedRef.current) {
         setMentorQueueLoading(false);
       }
     }
-  }, [addLog]);
+  }, []);
 
   const fetchQueueIntelligence = useCallback(async () => {
     try {
@@ -268,9 +212,8 @@ export default function App() {
 
   // 1. Initial application/session bootstrap - executed ONCE on mount
   useEffect(() => {
-    addLog('SYSTEM', 'Initializing LabLine application');
     checkSession();
-  }, [addLog, checkSession]);
+  }, [checkSession]);
 
   // 2. Persistent Socket.IO connection - initialized ONCE for application lifetime
   useEffect(() => {
@@ -284,39 +227,23 @@ export default function App() {
     socket.on('connect', () => {
       if (!isMountedRef.current) return;
       setSocketConnected(true);
-      setSocketId(socket.id);
-      const transportName = socket.io?.engine?.transport?.name || 'websocket';
-      setSocketTransport(transportName);
-      addLog('SOCKET', `Connected [${socket.id}] via ${transportName}`, 'success');
-    });
-
-    socket.on('system:pong', (payload) => {
-      if (!isMountedRef.current) return;
-      if (payload?.clientTimestamp) {
-        const rtt = Math.round(performance.now() - payload.clientTimestamp);
-        setSocketPingLatency(rtt);
-        addLog('SOCKET', `Ping round-trip: ${rtt}ms`, 'success');
-      }
     });
 
     // Server-originated queue change broadcast -> triggers bounded refresh via stable ref
-    socket.on('queue:changed', (payload) => {
-      addLog('SOCKET', `Queue changed: [${payload.action}]`, 'info');
+    socket.on('queue:changed', () => {
       triggerBoundedRefresh();
     });
 
-    socket.on('disconnect', (reason) => {
+    socket.on('disconnect', () => {
       if (!isMountedRef.current) return;
       setSocketConnected(false);
-      setSocketId(null);
-      addLog('SOCKET', `Disconnected: ${reason}`, 'warn');
     });
 
     return () => {
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [addLog, triggerBoundedRefresh]);
+  }, [triggerBoundedRefresh]);
 
   // 3. User workspace data synchronization - runs ONLY when authenticated user identity or role changes
   const userKey = currentUser ? `${currentUser._id || currentUser.id}:${currentUser.role}` : null;
@@ -332,13 +259,6 @@ export default function App() {
       setMentorQueue([]);
     }
   }, [userKey, fetchMyRequests, fetchQueue, fetchQueueIntelligence]);
-
-  // If user opens diagnostics tab and healthData is missing, fetch once
-  useEffect(() => {
-    if (activeView === 'diagnostics' && !healthData && !healthLoading) {
-      fetchHealth();
-    }
-  }, [activeTab, healthData, healthLoading, fetchHealth]);
 
   // -------------------------------------------------------------------------
   // USER ACTIONS
@@ -372,10 +292,8 @@ export default function App() {
       setCurrentUser(data.user);
       setAuthSuccess(`Welcome, ${data.user.name}. Signed in as ${data.user.role}.`);
       setAuthForm({ email: '', name: '', password: '' });
-      addLog('AUTH', `Signed in as ${data.user.email}`, 'success');
     } catch (err) {
       setAuthError(err.message);
-      addLog('AUTH', `Authentication failed: ${err.message}`, 'error');
     } finally {
       setAuthSubmitting(false);
     }
@@ -384,13 +302,12 @@ export default function App() {
   const handleLogout = async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
-      addLog('AUTH', 'User signed out', 'info');
       setCurrentUser(null);
       setMyRequests([]);
       setMentorQueue([]);
       setActiveView('landing');
     } catch (err) {
-      addLog('AUTH', `Logout error: ${err.message}`, 'error');
+      console.error('Logout error:', err.message);
     }
   };
 
@@ -412,13 +329,11 @@ export default function App() {
         throw new Error(data.message || data.error || 'Failed to submit help request.');
       }
 
-      setRequestSuccess(`Signal transmitted. Position in pipeline: #${data.request.queuePosition}`);
-      addLog('QUEUE', `Created help request: "${data.request.topic}" [${category}]`, 'success');
+      setRequestSuccess(`Request submitted. Position in queue: #${data.request.queuePosition}`);
       fetchMyRequests();
       return true;
     } catch (err) {
       setRequestError(err.message);
-      addLog('QUEUE', `Request creation failed: ${err.message}`, 'error');
       return false;
     } finally {
       setRequestSubmitting(false);
@@ -426,7 +341,7 @@ export default function App() {
   };
 
   const handleCancelRequest = async (requestId) => {
-    if (!window.confirm('Are you sure you want to cancel this waiting signal?')) return;
+    if (!window.confirm('Are you sure you want to cancel this request?')) return;
     try {
       const res = await fetch(`/api/requests/${requestId}/cancel`, {
         method: 'POST',
@@ -436,7 +351,6 @@ export default function App() {
       if (!res.ok) {
         throw new Error(data.message || data.error || 'Failed to cancel request.');
       }
-      addLog('QUEUE', `Cancelled request ${requestId}`, 'info');
       fetchMyRequests();
     } catch (err) {
       alert(`Could not cancel request: ${err.message}`);
@@ -455,11 +369,9 @@ export default function App() {
       if (!res.ok) {
         throw new Error(data.message || 'Failed to record session feedback.');
       }
-      addLog('FEEDBACK', `Recorded session outcome feedback: ★ ${rating}/5`, 'success');
       fetchMyRequests();
       return true;
     } catch (err) {
-      addLog('FEEDBACK', `Feedback failed: ${err.message}`, 'error');
       throw err;
     }
   };
@@ -473,13 +385,11 @@ export default function App() {
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.message || 'Unable to claim signal.');
+        throw new Error(data.message || 'Unable to accept request.');
       }
-      addLog('QUEUE', `Claimed signal: "${data.request.topic}"`, 'success');
       fetchQueue();
     } catch (err) {
       setQueueActionError(err.message);
-      addLog('QUEUE', `Claim failed: ${err.message}`, 'error');
       fetchQueue();
     }
   };
@@ -501,12 +411,10 @@ export default function App() {
       if (!res.ok) {
         throw new Error(data.message || 'Failed to update request status.');
       }
-      addLog('QUEUE', `Signal status updated to "${targetStatus}"`, 'success');
       fetchQueue();
       return true;
     } catch (err) {
       setQueueActionError(err.message);
-      addLog('QUEUE', `Status update error: ${err.message}`, 'error');
       return false;
     }
   };
@@ -524,20 +432,10 @@ export default function App() {
         throw new Error(data.message || 'Failed to update availability.');
       }
       setCurrentUser(data.user);
-      addLog('MENTOR', `Availability set to ${isAvailable ? 'available' : 'away'}`, 'info');
       fetchQueue();
     } catch (err) {
       setQueueActionError(err.message);
     }
-  };
-
-  const handlePingSocket = () => {
-    if (!socketRef.current || !socketConnected) {
-      addLog('SOCKET', 'Socket ping unavailable: not connected', 'warn');
-      return;
-    }
-    const clientTimestamp = performance.now();
-    socketRef.current.emit('system:ping', { clientTimestamp });
   };
 
   // Student partition
@@ -583,10 +481,10 @@ export default function App() {
             <div id="lifecycle" className="landing-workflows-wrapper">
               <section className="landing-section">
                 <div className="section-meta-header">
-                  <span className="section-index font-mono">01 // LIFECYCLE ARCHITECTURE</span>
-                  <h2 className="section-headline">FROM SIGNAL EMISSION TO RESOLUTION</h2>
+                  <span className="section-index font-mono">01 // LIFECYCLE FLOW</span>
+                  <h2 className="section-headline">FROM DOUBT SUBMISSION TO RESOLUTION</h2>
                   <p className="section-subtext">
-                    The signature carrier wave: trace a student blocker through the 5 deterministic phases of laboratory assistance.
+                    Trace a student blocker through the five structured stages of laboratory assistance and conversation.
                   </p>
                 </div>
                 <SignalVisualizer />
@@ -595,143 +493,8 @@ export default function App() {
 
             <LandingWorkflows onOpenAuth={handleOpenAuth} />
           </main>
-          <Footer onOpenDiagnostics={() => setActiveView('diagnostics')} />
+          <Footer />
         </>
-      ) : activeView === 'diagnostics' ? (
-        <main className="page-container">
-          <div className="diagnostics-panel">
-            <div className="page-header">
-              <h1 className="page-heading">System Diagnostics</h1>
-              <p className="page-subheading">
-                Operational verification of API endpoints, database persistence, and Socket.IO real-time channels.
-              </p>
-            </div>
-
-            <div className="workspace-grid equal">
-              {/* Left Column: Subsystem Status */}
-              <div className="section-card">
-                <div className="section-card-header">
-                  <span className="section-card-title">Subsystems &amp; Connectivity</span>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button
-                      type="button"
-                      className="btn"
-                      onClick={fetchHealth}
-                      disabled={healthLoading}
-                    >
-                      {healthLoading ? 'Checking...' : 'Check /api/health'}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      onClick={handlePingSocket}
-                      disabled={!socketConnected}
-                    >
-                      Ping Socket
-                    </button>
-                  </div>
-                </div>
-
-                <div className="section-card-body" style={{ padding: 0 }}>
-                  <div style={{ overflowX: 'auto' }}>
-                    <table className="diag-table">
-                      <thead>
-                        <tr>
-                          <th>Subsystem</th>
-                          <th>Endpoint / Channel</th>
-                          <th>Status</th>
-                          <th>Telemetry</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td style={{ fontWeight: 600 }}>HTTP Server</td>
-                          <td>GET /api/health</td>
-                          <td>
-                            <span className={`status-pill ${healthError ? 'cancelled' : 'claimed'}`}>
-                              {healthError ? 'Error' : healthData ? 'Ready' : 'Checking'}
-                            </span>
-                          </td>
-                          <td>{healthLatency !== null ? `${healthLatency}ms` : '—'}</td>
-                        </tr>
-
-                        <tr>
-                          <td style={{ fontWeight: 600 }}>Database</td>
-                          <td>MongoDB Atlas</td>
-                          <td>
-                            <span
-                              className={`status-pill ${
-                                healthData?.database?.connected ? 'claimed' : 'waiting'
-                              }`}
-                            >
-                              {healthData?.database?.connected ? 'Connected' : 'Disconnected'}
-                            </span>
-                          </td>
-                          <td>{healthData?.database?.status || 'Unknown'}</td>
-                        </tr>
-
-                        <tr>
-                          <td style={{ fontWeight: 600 }}>Socket.IO Gateway</td>
-                          <td>Websocket / Polling</td>
-                          <td>
-                            <span className={`status-pill ${socketConnected ? 'claimed' : 'waiting'}`}>
-                              {socketConnected ? 'Online' : 'Offline'}
-                            </span>
-                          </td>
-                          <td>
-                            {socketConnected
-                              ? `${socketTransport || 'ws'} [${socketId?.substring(0, 6)}...] ${
-                                  socketPingLatency !== null ? `(${socketPingLatency}ms)` : ''
-                                }`
-                              : 'Awaiting connection'}
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <div style={{ padding: '14px 18px', borderTop: '1px solid var(--border-default)', fontSize: '12px', color: 'var(--text-muted)' }}>
-                    Last health probe: {lastChecked || 'Not polled in this view yet'}
-                  </div>
-                </div>
-              </div>
-
-              {/* Right Column: Telemetry Event Stream */}
-              <div className="section-card">
-                <div className="section-card-header">
-                  <span className="section-card-title">Live Telemetry Events</span>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => setTelemetryLogs([])}
-                  >
-                    Clear Log
-                  </button>
-                </div>
-
-                <div className="section-card-body" style={{ maxHeight: '420px', overflowY: 'auto' }}>
-                  {telemetryLogs.length === 0 ? (
-                    <div style={{ color: 'var(--text-muted)', fontSize: '12px' }}>
-                      No events logged in this session.
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontFamily: 'var(--font-mono)', fontSize: '12px' }}>
-                      {telemetryLogs.map((log) => (
-                        <div key={log.id} style={{ display: 'flex', gap: '8px' }}>
-                          <span style={{ color: 'var(--text-muted)' }}>{log.timestamp}</span>
-                          <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>[{log.source}]</span>
-                          <span style={{ color: log.level === 'error' ? 'var(--accent-red)' : log.level === 'success' ? 'var(--accent-green)' : 'var(--text-primary)' }}>
-                            {log.message}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </main>
       ) : (
         <main className="page-container">
           {authLoading ? (
@@ -745,15 +508,18 @@ export default function App() {
             <div className="auth-wrapper">
               <div className="section-card" style={{ maxWidth: '460px', margin: '48px auto', textAlign: 'center' }}>
                 <div className="section-card-header font-mono" style={{ justifyContent: 'center' }}>
-                  <span>00 // OPERATIONAL GATEWAY</span>
+                  <span>AUTHENTICATION REQUIRED</span>
                 </div>
                 <div className="section-card-body" style={{ padding: '32px 24px', display: 'flex', flexDirection: 'column', gap: '16px', alignItems: 'center' }}>
-                  <div style={{ fontSize: '28px' }}>⚡</div>
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--color-signal)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                  </svg>
                   <h2 className="font-display" style={{ fontSize: '20px', color: 'var(--color-warm-white)' }}>
                     Authentication Required
                   </h2>
                   <p style={{ fontSize: '13px', color: 'var(--color-neutral)', lineHeight: 1.5 }}>
-                    Please sign in or register to access your personal Signal Desk or Mentor Radar Desk.
+                    Please sign in or register to access your personal Student Dashboard or Mentor Dashboard.
                   </p>
                   <div style={{ display: 'flex', gap: '12px', width: '100%', marginTop: '6px' }}>
                     <button
@@ -770,7 +536,7 @@ export default function App() {
                       style={{ flex: 1, padding: '10px' }}
                       onClick={() => handleOpenAuth('register')}
                     >
-                      Register →
+                      Register
                     </button>
                   </div>
                   <button
@@ -779,7 +545,7 @@ export default function App() {
                     style={{ background: 'transparent', border: 'none', color: 'var(--color-neutral-muted)', fontSize: '11px', cursor: 'pointer', marginTop: '6px' }}
                     onClick={() => setActiveView('landing')}
                   >
-                    ← Return to Landing Overview
+                    Return to Overview
                   </button>
                 </div>
               </div>

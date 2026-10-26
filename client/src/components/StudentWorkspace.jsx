@@ -133,17 +133,17 @@ export default function StudentWorkspace({
       <div className="page-header">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
           <div>
-            <h1 className="page-heading">Student Signal Deck</h1>
+            <h1 className="page-heading">Student Dashboard</h1>
             <p className="page-subheading">
-              Transmit technical doubt signals to available lab mentors. Track FIFO queue telemetry, live session status, and structured outcomes.
+              Submit technical doubts to lab mentors. Track FIFO queue position, live session progress, and resolution feedback.
             </p>
           </div>
           <div className="telemetry-strip">
             <div className="telemetry-metric">
-              <span className="telemetry-metric-lbl">Signal Status</span>
+              <span className="telemetry-metric-lbl">Status</span>
               <span className="telemetry-metric-val signal">
                 <span className="pulse-dot active" style={{ width: 8, height: 8 }} />
-                {activeRequest ? 'Transmitting' : 'Idle / Listening'}
+                {activeRequest ? 'Active Request' : 'Idle'}
               </span>
             </div>
             <div className="telemetry-divider" />
@@ -194,15 +194,15 @@ export default function StudentWorkspace({
                 Rate Session Helpfulness (1 to 5)
               </label>
               <div className="rating-stars-group">
-                {[1, 2, 3, 4, 5].map((star) => (
+                {[1, 2, 3, 4, 5].map((num) => (
                   <button
-                    key={star}
+                    key={num}
                     type="button"
-                    className={`star-btn ${feedbackRating === star ? 'selected' : ''}`}
-                    onClick={() => setFeedbackRating(star)}
+                    className={`star-btn ${feedbackRating === num ? 'selected' : ''}`}
+                    onClick={() => setFeedbackRating(num)}
                     disabled={feedbackSubmitting}
                   >
-                    ★ {star}
+                    {num}
                   </button>
                 ))}
               </div>
@@ -289,7 +289,7 @@ export default function StudentWorkspace({
                       <span className="telemetry-metric-val signal">
                         {activeRequest.intelligence.estimatedWaitMinutes !== null
                           ? `~${activeRequest.intelligence.estimatedWaitMinutes} minutes`
-                          : 'Calibrating...'}
+                          : 'Estimating...'}
                       </span>
                     </div>
                     <div className="telemetry-divider" />
@@ -349,7 +349,7 @@ export default function StudentWorkspace({
                         className="btn btn-danger"
                         onClick={() => onCancelRequest(activeRequest._id)}
                       >
-                        Cancel Signal
+                        Cancel request
                       </button>
                     </div>
                   )}
@@ -360,9 +360,9 @@ export default function StudentWorkspace({
             /* Request Composer */
             <div className="section-card">
               <div className="section-card-header">
-                <span className="section-card-title">Transmit Technical Doubt Signal</span>
+                <span className="section-card-title">Submit Help Request</span>
                 <span style={{ fontSize: 11, color: 'var(--color-neutral-muted)', fontFamily: 'var(--font-mono)' }}>
-                  FIFO PIPELINE
+                  FIFO QUEUE
                 </span>
               </div>
 
@@ -442,7 +442,7 @@ export default function StudentWorkspace({
 
                   <div>
                     <button type="submit" className="btn btn-primary" disabled={requestSubmitting}>
-                      {requestSubmitting ? 'Transmitting...' : 'Transmit Signal to Queue'}
+                      {requestSubmitting ? 'Submitting...' : 'Submit to Queue'}
                     </button>
                   </div>
                 </form>
@@ -455,7 +455,7 @@ export default function StudentWorkspace({
         <div className="section-card">
           <div className="section-card-header">
             <span className="section-card-title">
-              Signal History ({pastRequests.length})
+              Session History &amp; Feedback ({pastRequests.length})
             </span>
             <button
               type="button"
@@ -491,7 +491,10 @@ export default function StudentWorkspace({
               </div>
 
               <div className="search-input-wrap">
-                <span className="search-icon">🔍</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="search-icon" aria-hidden="true" style={{ color: 'var(--color-neutral-muted)' }}>
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
                 <input
                   type="text"
                   className="search-input"
@@ -504,7 +507,7 @@ export default function StudentWorkspace({
 
             {filteredPastRequests.length === 0 ? (
               <div className="empty-box" style={{ border: 'none', margin: '20px 0' }}>
-                <div className="empty-box-title">No matching past signals</div>
+                <div className="empty-box-title">No matching past sessions</div>
                 <div className="empty-box-desc">
                   Resolved or cancelled sessions matching your filters will appear here with resolution notes and ratings.
                 </div>
@@ -546,15 +549,30 @@ export default function StudentWorkspace({
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
                           {req.feedback?.rating && (
                             <span className="history-feedback-badge">
-                              ★ {req.feedback.rating}/5
+                              Rating: {req.feedback.rating}/5
                             </span>
                           )}
                           <span style={{ fontSize: 11, color: 'var(--color-neutral-muted)', fontFamily: 'var(--font-mono)' }}>
                             {new Date(req.updatedAt).toLocaleDateString()}
                           </span>
-                          <span style={{ color: 'var(--color-neutral-muted)', fontSize: 12 }}>
-                            {isExpanded ? '▲' : '▼'}
-                          </span>
+                          <svg
+                            width="12"
+                            height="12"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                            style={{
+                              color: 'var(--color-neutral-muted)',
+                              transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                              transition: 'transform 0.15s ease',
+                            }}
+                          >
+                            <polyline points="6 9 12 15 18 9" />
+                          </svg>
                         </div>
                       </div>
 

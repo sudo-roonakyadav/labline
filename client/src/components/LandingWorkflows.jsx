@@ -42,9 +42,9 @@ export default function LandingWorkflows({ onOpenAuth }) {
       <section id="workflows" className="landing-section">
         <div className="section-meta-header">
           <span className="section-index font-mono">03 // WORKFLOW ARCHITECTURE</span>
-          <h2 className="section-headline">TWO SPECIALIZED WORKSPACES, ONE REAL-TIME PROTOCOL</h2>
+          <h2 className="section-headline">TWO SPECIALIZED WORKSPACES, ONE REAL-TIME QUEUE</h2>
           <p className="section-subtext">
-            Designed to match the cognitive models of both participants: the student in distress and the mentor orchestrating triage.
+            Designed to match the practical needs of both students asking questions and mentors providing structured help.
           </p>
         </div>
 
@@ -52,31 +52,31 @@ export default function LandingWorkflows({ onOpenAuth }) {
           {/* Student Pathway Card */}
           <div className="workflow-card student-workflow">
             <div className="workflow-card-header">
-              <span className="workflow-badge font-mono">STUDENT TRANSMISSION DESK</span>
+              <span className="workflow-badge font-mono">STUDENT WORKSPACE</span>
               <span className="workflow-status-dot" />
             </div>
 
-            <h3 className="workflow-title">Focused, Context-Rich Doubt Emission</h3>
+            <h3 className="workflow-title">Clear, Context-Rich Doubt Submission</h3>
             <p className="workflow-desc">
-              Students compose their question with category classification (DSA, Frontend, Backend, Database, Env) and optional code snippets, ensuring the mentor arrives already understanding the technical landscape.
+              Students formulate their doubt with category classification (DSA, Frontend, Backend, Database, Env) and optional code snippets, ensuring the mentor understands the problem before replying.
             </p>
 
             <ul className="workflow-feature-list font-mono">
               <li>
                 <span className="feature-marker">+</span>
-                <span>Real-time queue coordinate (#1, #2...) calculated on actual pending signals.</span>
+                <span>Real-time queue position (#1, #2...) based on verified FIFO arrival order.</span>
               </li>
               <li>
                 <span className="feature-marker">+</span>
-                <span>Deterministic wait estimation derived from real recent resolution rates.</span>
+                <span>Interactive conversation thread with assigned mentor until solved.</span>
               </li>
               <li>
                 <span className="feature-marker">+</span>
-                <span>Signal lifecycle tracker: Created → Claimed → In-Session → Resolved.</span>
+                <span>Follow-up support: continue the discussion if you need more clarification.</span>
               </li>
               <li>
                 <span className="feature-marker">+</span>
-                <span>Permanent resolution notes archive and 5-star verified feedback rating.</span>
+                <span>Student-controlled closure with 1-5 rating and optional feedback.</span>
               </li>
             </ul>
 
@@ -86,39 +86,39 @@ export default function LandingWorkflows({ onOpenAuth }) {
                 className="btn-signal-outline"
                 onClick={() => onOpenAuth('register', 'student')}
               >
-                CREATE STUDENT ACCOUNT →
+                CREATE STUDENT ACCOUNT
               </button>
             </div>
           </div>
 
-          {/* Mentor Radar Desk Card */}
+          {/* Mentor Workspace Card */}
           <div className="workflow-card mentor-workflow">
             <div className="workflow-card-header">
-              <span className="workflow-badge font-mono">MENTOR RADAR &amp; TRIAGE DESK</span>
+              <span className="workflow-badge font-mono">MENTOR DASHBOARD</span>
               <span className="workflow-status-dot mentor" />
             </div>
 
-            <h3 className="workflow-title">High-Throughput Operational Triage</h3>
+            <h3 className="workflow-title">Orderly Triage &amp; Live Conversations</h3>
             <p className="workflow-desc">
-              A high-density operational desk built for lab instructors. Filter incoming doubts by domain expertise, claim signals with atomic concurrency locking, and track live peer allocations.
+              A clear dashboard for lab instructors. Filter incoming doubts by topic, accept requests with atomic concurrency locking, and conduct interactive troubleshooting sessions.
             </p>
 
             <ul className="workflow-feature-list font-mono">
               <li>
                 <span className="feature-marker">+</span>
-                <span>Strict FIFO queue view with live waiting duration tickers for every signal.</span>
+                <span>Strict FIFO queue view with live waiting duration tickers for every request.</span>
               </li>
               <li>
                 <span className="feature-marker">+</span>
-                <span>Atomic claim locking: Guaranteed single-mentor assignment with 409 protection.</span>
+                <span>Atomic claim locking: Guaranteed single-mentor assignment with conflict protection.</span>
               </li>
               <li>
                 <span className="feature-marker">+</span>
-                <span>Persistent mentor availability toggle (Available vs Away / Engaged).</span>
+                <span>Dedicated Live Sessions section highlighting requests that need your reply.</span>
               </li>
               <li>
                 <span className="feature-marker">+</span>
-                <span>Structured session closing: Record permanent resolution summary and learning outcome.</span>
+                <span>Session history with verified student ratings and complete discussion records.</span>
               </li>
             </ul>
 
@@ -128,7 +128,7 @@ export default function LandingWorkflows({ onOpenAuth }) {
                 className="btn-ghost"
                 onClick={() => onOpenAuth('register', 'teacher')}
               >
-                REGISTER AS TEACHER →
+                REGISTER AS TEACHER
               </button>
             </div>
           </div>

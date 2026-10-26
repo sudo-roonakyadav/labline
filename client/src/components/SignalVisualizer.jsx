@@ -2,85 +2,85 @@ import { useState, useEffect } from 'react';
 
 const STAGES = [
   {
-    id: 'emission',
+    id: 'submission',
     index: '01',
-    label: 'EMISSION',
-    sub: 'Student Dispatches Doubt',
+    label: 'SUBMISSION',
+    sub: 'Student Submits Doubt',
     coords: { x: 80, y: 130 },
     color: '#D6FF55',
-    detail: 'Student constructs structured telemetry (category, topic, description, terminal/code snippet). The request is signed and sent over secure HTTP with credentials.',
+    detail: 'Student constructs a structured request (category, topic, description, code/terminal snippet). The request is validated on the server and placed into the queue.',
     protocol: 'POST /api/requests',
-    telemetry: {
+    payload: {
       category: 'dsa',
       topic: 'Deadlock in Dijkstra heap',
       status: 'waiting',
-      codeBytes: 248,
+      codeSnippet: '// snippet attached',
     },
-    guarantee: 'Input validated (length, type safety); sanitized against injection before queue ingress.',
+    guarantee: 'Input validated on server for length and type safety; sanitized against injection.',
   },
   {
     id: 'queue',
     index: '02',
-    label: 'PROPAGATION',
-    sub: 'FIFO Queue Placement',
+    label: 'FIFO QUEUE',
+    sub: 'Timestamped Queue Placement',
     coords: { x: 260, y: 70 },
     color: '#E5B842',
-    detail: 'The signal takes an immutable timestamped position in the FIFO queue. Live position coordinates (#N) are computed dynamically against all pending requests.',
+    detail: 'The request takes an immutable timestamped position in the FIFO queue. Live queue coordinates (#N) are computed dynamically against all pending requests.',
     protocol: 'GET /api/requests/mine · WebSocket: queue:changed',
-    telemetry: {
+    payload: {
       queuePosition: '#1 in queue',
       ordering: 'Strict FIFO by createdAt',
-      broadcast: '200ms debounced pulse',
+      realtime: 'Coalesced socket updates',
     },
-    guarantee: 'Queue integrity: No queue-jumping, no reordering, real-time sync across connected peers.',
+    guarantee: 'Queue integrity: No queue-jumping, no reordering, real-time sync across connected users.',
   },
   {
-    id: 'attunement',
+    id: 'acceptance',
     index: '03',
-    label: 'ATTUNEMENT',
-    sub: 'Atomic Mentor Claim',
+    label: 'ACCEPTANCE',
+    sub: 'Atomic Mentor Assignment',
     coords: { x: 440, y: 140 },
     color: '#D6FF55',
-    detail: 'An on-duty mentor locks onto the signal. MongoDB atomically validates status == "waiting" before assigning mentor ID, returning 409 Conflict to competing claimers.',
+    detail: 'An on-duty mentor accepts the request. MongoDB atomically validates status == "waiting" before assigning mentor ID, returning 409 Conflict to competing claimers.',
     protocol: 'POST /api/requests/:id/claim',
-    telemetry: {
+    payload: {
       status: 'claimed',
-      claimedBy: 'Priya Nair (Mentor)',
+      mentor: 'Priya Nair (Mentor)',
       atomicity: 'findOneAndUpdate({ _id, status: "waiting" })',
     },
-    guarantee: 'Zero race conditions: exactly one mentor claims the signal; student cancellation is locked out.',
+    guarantee: 'Zero race conditions: exactly one mentor accepts the request; student cancellation is locked out.',
   },
   {
-    id: 'harmonization',
+    id: 'conversation',
     index: '04',
-    label: 'HARMONIZATION',
-    sub: 'Active 1-on-1 Guidance',
+    label: 'CONVERSATION',
+    sub: 'Discussion & Follow-up',
     coords: { x: 620, y: 80 },
     color: '#55D6FF',
-    detail: 'Mentor and student engage. Mentor transitions status to in_progress, isolating the root cause, stepping through debugger traces, or explaining algorithmic complexity.',
-    protocol: 'PATCH /api/requests/:id/status (in_progress)',
-    telemetry: {
-      status: 'in_progress',
-      channel: 'Direct laboratory workstation',
-      timer: 'Resolution clock active',
+    detail: 'Mentor and student communicate in an interactive conversation thread. Mentor posts replies, student can ask follow-ups, and the request stays open until fully resolved.',
+    protocol: 'POST /api/requests/:id/messages',
+    payload: {
+      status: 'awaiting_student',
+      messagesCount: 3,
+      latestSender: 'mentor',
     },
-    guarantee: 'Colleagues can see mentor is actively engaged, avoiding duplicate triage.',
+    guarantee: 'Persistent conversation history survives refreshes and restarts; updates synchronize in real time.',
   },
   {
-    id: 'resolution',
+    id: 'completion',
     index: '05',
-    label: 'RESOLUTION',
-    sub: 'Outcome & Feedback',
+    label: 'COMPLETION',
+    sub: 'Student Closure & Rating',
     coords: { x: 800, y: 130 },
     color: '#D6FF55',
-    detail: 'Session concludes. Mentor writes a concise resolution note. Student provides verified 1-5 star feedback. Request enters searchable student history archive.',
-    protocol: 'PATCH /api/requests/:id/status (resolved) + POST /api/requests/:id/feedback',
-    telemetry: {
+    detail: 'Student confirms the blocker is solved, closes the request, and rates the mentor 1 to 5 with optional feedback. The complete thread is preserved in history.',
+    protocol: 'POST /api/requests/:id/close',
+    payload: {
       status: 'resolved',
-      resolutionNotes: 'Fixed pointer boundary; explained null check idiom.',
-      feedback: '5 Stars · Clear explanation',
+      rating: 5,
+      comment: 'Clear explanation of pointer arithmetic.',
     },
-    guarantee: 'Permanent resolution documentation stored for revision; verified student satisfaction metric.',
+    guarantee: 'Only the student who owns the request can close it and submit a verified rating.',
   },
 ];
 
@@ -105,14 +105,14 @@ export default function SignalVisualizer() {
       <div className="visualizer-header">
         <div className="visualizer-badge">
           <span className="signal-pulse-dot" />
-          <span>CARRIER WAVE VISUALIZER // 5-PHASE SIGNAL DISPATCH</span>
+          <span>LIFECYCLE FLOW // 5-STAGE DOUBT RESOLUTION</span>
         </div>
         <div className="visualizer-controls">
           <button
             type="button"
             className="btn-tiny"
             onClick={() => setIsPaused((prev) => !prev)}
-            aria-label={isPaused ? 'Resume carrier animation' : 'Pause carrier animation'}
+            aria-label={isPaused ? 'Resume flow animation' : 'Pause flow animation'}
           >
             {isPaused ? 'PLAY' : 'PAUSE'}
           </button>
@@ -120,7 +120,7 @@ export default function SignalVisualizer() {
       </div>
 
       {/* SVG Canvas */}
-      <div className="svg-frame" role="region" aria-label="Signal lifecycle interactive diagram">
+      <div className="svg-frame" role="region" aria-label="Doubt lifecycle interactive diagram">
         <svg
           viewBox="0 0 880 200"
           className="signal-svg"
@@ -259,15 +259,17 @@ export default function SignalVisualizer() {
 
         <div className="stage-telemetry-grid">
           <div className="stage-telemetry-block">
-            <span className="telemetry-label font-mono">PROTOCOL TELEMETRY PAYLOAD</span>
+            <span className="telemetry-label font-mono">REQUEST / RESPONSE PAYLOAD</span>
             <pre className="telemetry-code font-mono">
-              {JSON.stringify(activeStage.telemetry, null, 2)}
+              {JSON.stringify(activeStage.payload, null, 2)}
             </pre>
           </div>
           <div className="stage-telemetry-block">
             <span className="telemetry-label font-mono">ARCHITECTURAL GUARANTEE</span>
             <div className="stage-guarantee-box">
-              <span className="guarantee-icon" style={{ color: activeStage.color }}>✓</span>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style={{ color: activeStage.color, flexShrink: 0, marginTop: '2px' }}>
+                <path d="M3 8.5L6.5 12L13 4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
               <span>{activeStage.guarantee}</span>
             </div>
           </div>

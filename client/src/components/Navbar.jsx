@@ -13,7 +13,7 @@ export default function Navbar({
         <div className="brand-group" onClick={() => setActiveView('landing')} style={{ cursor: 'pointer' }}>
           <span className="brand-mark">LABLINE</span>
           <span className="brand-divider">/</span>
-          <span className="brand-sub font-mono">SIGNAL PROTOCOL</span>
+          <span className="brand-sub font-mono">HELP DESK</span>
         </div>
 
         {/* Center Navigation Links (visible when on public landing) */}
@@ -28,10 +28,10 @@ export default function Navbar({
 
         {/* Right Actions */}
         <div className="header-actions">
-          {/* Signal Connection Pulse */}
-          <div className="connection-beacon" title={socketConnected ? 'Real-time WebSocket connected' : 'Connecting to gateway'}>
+          {/* Real-time Connection Status Indicator */}
+          <div className="connection-beacon" title={socketConnected ? 'Real-time WebSocket connected' : 'Connecting to server'}>
             <span className={`beacon-dot ${socketConnected ? 'active' : 'connecting'}`} />
-            <span className="beacon-label font-mono">{socketConnected ? 'SYNC 440Hz' : 'CONNECTING'}</span>
+            <span className="beacon-label font-mono">{socketConnected ? 'CONNECTED' : 'CONNECTING'}</span>
           </div>
 
           {currentUser ? (
@@ -41,15 +41,7 @@ export default function Navbar({
                 className={`btn-nav-tab ${activeView === 'workspace' ? 'active' : ''}`}
                 onClick={() => setActiveView('workspace')}
               >
-                {currentUser.role === 'mentor' ? 'Radar Desk' : 'Signal Desk'}
-              </button>
-
-              <button
-                type="button"
-                className={`btn-nav-tab ${activeView === 'diagnostics' ? 'active' : ''}`}
-                onClick={() => setActiveView('diagnostics')}
-              >
-                Diagnostics
+                {currentUser.role === 'mentor' ? 'Mentor Dashboard' : 'Student Dashboard'}
               </button>
 
               <div className="user-capsule">

@@ -163,7 +163,7 @@ export default function AuthModal({
             onClick={onClose}
             aria-label="Close authentication modal"
           >
-            [ESC ✕]
+            [ESC]
           </button>
         </div>
 
