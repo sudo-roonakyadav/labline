@@ -1,4 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
+import ImageAttachmentPicker from './ImageAttachmentPicker.jsx';
+import ImageLightboxModal from './ImageLightboxModal.jsx';
+import AttachmentThumbnailGrid from './AttachmentThumbnailGrid.jsx';
 
 const CATEGORIES = [
   { id: 'dsa', label: 'DSA' },
@@ -48,8 +51,13 @@ export default function MentorWorkspace({
   // Active Live Session Selection & Reply Composer
   const [selectedSessionId, setSelectedSessionId] = useState(null);
   const [replyText, setReplyText] = useState('');
+  const [replyImages, setReplyImages] = useState([]);
+  const [replyImageError, setReplyImageError] = useState(null);
   const [replySubmitting, setReplySubmitting] = useState(false);
   const [replyError, setReplyError] = useState(null);
+
+  // Lightbox Modal State
+  const [activeLightboxImage, setActiveLightboxImage] = useState(null);
 
   // History State
   const [historyList, setHistoryList] = useState([]);
@@ -178,13 +186,16 @@ export default function MentorWorkspace({
 
   const handlePostReply = async (e) => {
     e.preventDefault();
-    if (!activeSession || !replyText.trim() || !onPostMessage) return;
+    if (!activeSession || (!replyText.trim() && replyImages.length === 0) || !onPostMessage) return;
     setReplySubmitting(true);
     setReplyError(null);
+    setReplyImageError(null);
 
     try {
-      await onPostMessage(activeSession._id, replyText.trim());
+      await onPostMessage(activeSession._id, replyText.trim(), replyImages);
       setReplyText('');
+      setReplyImages([]);
+      setReplyImageError(null);
     } catch (err) {
       setReplyError(err.message || 'Failed to post reply.');
     } finally {
@@ -578,6 +589,20 @@ export default function MentorWorkspace({
                           <pre className="code-box" style={{ fontSize: 12, maxHeight: 160 }}>{activeSession.codeSnippet}</pre>
                         </div>
                       )}
+
+                      {activeSession.attachments && activeSession.attachments.length > 0 && (
+                        <div style={{ marginTop: 12 }}>
+                          <div className="form-label" style={{ fontSize: 10, marginBottom: 6 }}>
+                            STUDENT ATTACHMENTS ({activeSession.attachments.length})
+                          </div>
+                          <AttachmentThumbnailGrid
+                            attachments={activeSession.attachments}
+                            requestId={activeSession._id}
+                            onOpenLightbox={(img) => setActiveLightboxImage(img)}
+                            layout="row"
+                          />
+                        </div>
+                      )}
                     </div>
 
                     {/* Conversation History Area */}
@@ -633,9 +658,21 @@ export default function MentorWorkspace({
                                     {formatTime(msg.createdAt)}
                                   </span>
                                 </div>
-                                <p style={{ fontSize: 13, color: 'var(--color-warm-white)', lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                                  {msg.content}
-                                </p>
+                                {msg.content ? (
+                                  <p style={{ fontSize: 13, color: 'var(--color-warm-white)', lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                    {msg.content}
+                                  </p>
+                                ) : null}
+                                {msg.attachments && msg.attachments.length > 0 && (
+                                  <div style={{ marginTop: 8 }}>
+                                    <AttachmentThumbnailGrid
+                                      attachments={msg.attachments}
+                                      requestId={activeSession._id}
+                                      onOpenLightbox={setActiveLightboxImage}
+                                      layout="row"
+                                    />
+                                  </div>
+                                )}
                               </div>
                             );
                           })
@@ -669,13 +706,25 @@ export default function MentorWorkspace({
                         </div>
                       </div>
 
+                      {/* Image Attachment Picker */}
+                      <div style={{ marginTop: -2 }}>
+                        <ImageAttachmentPicker
+                          selectedFiles={replyImages}
+                          onFilesChange={setReplyImages}
+                          maxFiles={3}
+                          disabled={replySubmitting}
+                          error={replyImageError}
+                          onError={setReplyImageError}
+                        />
+                      </div>
+
                       {replyError && <div className="alert-banner error">{replyError}</div>}
 
                       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
                         <button
                           type="submit"
                           className="btn btn-primary"
-                          disabled={replySubmitting || !replyText.trim()}
+                          disabled={replySubmitting || (!replyText.trim() && replyImages.length === 0)}
                         >
                           {replySubmitting ? 'Posting reply...' : 'Post reply'}
                         </button>
@@ -866,12 +915,31 @@ export default function MentorWorkspace({
                         Student Reflection: <em>"{item.feedback.comment}"</em>
                       </div>
                     )}
+
+                    {item.attachments && item.attachments.length > 0 && (
+                      <div style={{ marginTop: 4 }}>
+                        <AttachmentThumbnailGrid
+                          attachments={item.attachments}
+                          requestId={item._id}
+                          onOpenLightbox={setActiveLightboxImage}
+                          layout="row"
+                        />
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
             )}
           </div>
         </div>
+      )}
+
+      {/* Lightbox Modal */}
+      {activeLightboxImage && (
+        <ImageLightboxModal
+          attachment={activeLightboxImage}
+          onClose={() => setActiveLightboxImage(null)}
+        />
       )}
     </div>
   );

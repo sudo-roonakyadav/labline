@@ -327,18 +327,36 @@ export default function App() {
     }
   };
 
-  const handleCreateRequest = async ({ topic, description, codeSnippet, category }) => {
+  const handleCreateRequest = async ({ topic, description, codeSnippet, category, images = [] }) => {
     setRequestSubmitting(true);
     setRequestError(null);
     setRequestSuccess(null);
 
     try {
-      const res = await fetch('/api/requests', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ topic, description, codeSnippet, category }),
-      });
+      let res;
+      if (Array.isArray(images) && images.length > 0) {
+        const formData = new FormData();
+        formData.append('topic', topic);
+        formData.append('description', description);
+        if (codeSnippet) formData.append('codeSnippet', codeSnippet);
+        if (category) formData.append('category', category);
+        for (const item of images) {
+          const fileObj = item.file || item;
+          formData.append('images', fileObj);
+        }
+        res = await fetch('/api/requests', {
+          method: 'POST',
+          credentials: 'include',
+          body: formData,
+        });
+      } else {
+        res = await fetch('/api/requests', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ topic, description, codeSnippet, category }),
+        });
+      }
 
       const data = await res.json();
       if (!res.ok) {
@@ -400,17 +418,36 @@ export default function App() {
     }
   };
 
-  const handlePostMessage = async (requestId, content) => {
+  const handlePostMessage = async (requestId, content, images = []) => {
     try {
-      const res = await fetch(`/api/requests/${requestId}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ content }),
-      });
+      let res;
+      if (Array.isArray(images) && images.length > 0) {
+        const formData = new FormData();
+        if (content) formData.append('content', content);
+        for (const item of images) {
+          const fileObj = item.file || item;
+          formData.append('images', fileObj);
+        }
+        res = await fetch(`/api/requests/${requestId}/messages`, {
+          method: 'POST',
+          credentials: 'include',
+          body: formData,
+        });
+      } else {
+        res = await fetch(`/api/requests/${requestId}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ content }),
+        });
+      }
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.message || data.error || 'Failed to post message.');
+        const detailsStr = Array.isArray(data.details) && data.details.length > 0
+          ? data.details.join(' ')
+          : null;
+        const errMsg = detailsStr || data.message || data.error || 'Failed to post message.';
+        throw new Error(errMsg);
       }
       if (currentUser?.role === 'student') {
         fetchMyRequests();

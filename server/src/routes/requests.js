@@ -619,6 +619,12 @@ requestsRouter.get('/:id/attachments/:attachmentId', requireAuth, async (req, re
       }
     });
 
+    res.on('close', () => {
+      if (!res.writableEnded) {
+        downloadStream.destroy();
+      }
+    });
+
     downloadStream.pipe(res);
   } catch (err) {
     next(err);

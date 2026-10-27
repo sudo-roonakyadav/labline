@@ -21,9 +21,13 @@ describe('Mentor Promotion CLI Utility', () => {
   });
 
   after(async () => {
-    await User.deleteMany({ email: 'cli_test_user@scaler.com' });
-    if (mongoose.connection.readyState !== 0) {
-      await mongoose.disconnect();
+    try {
+      await User.deleteMany({ email: 'cli_test_user@scaler.com' });
+    } catch (e) {
+    } finally {
+      if (mongoose.connection.readyState !== 0) {
+        await mongoose.disconnect();
+      }
     }
   });
 

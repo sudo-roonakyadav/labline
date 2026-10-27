@@ -1,4 +1,7 @@
 import { useState, useMemo } from 'react';
+import ImageAttachmentPicker from './ImageAttachmentPicker.jsx';
+import ImageLightboxModal from './ImageLightboxModal.jsx';
+import AttachmentThumbnailGrid from './AttachmentThumbnailGrid.jsx';
 
 const CATEGORIES = [
   { id: 'dsa', label: 'DSA / Algorithms' },
@@ -45,13 +48,20 @@ export default function StudentWorkspace({
   const [description, setDescription] = useState('');
   const [codeSnippet, setCodeSnippet] = useState('');
   const [category, setCategory] = useState('frontend');
+  const [requestImages, setRequestImages] = useState([]);
+  const [requestImageError, setRequestImageError] = useState(null);
   const [fieldErrors, setFieldErrors] = useState({});
   const [formError, setFormError] = useState(null);
 
   // Conversation Follow-Up State
   const [followUpText, setFollowUpText] = useState('');
+  const [followUpImages, setFollowUpImages] = useState([]);
+  const [followUpImageError, setFollowUpImageError] = useState(null);
   const [followUpSubmitting, setFollowUpSubmitting] = useState(false);
   const [followUpError, setFollowUpError] = useState(null);
+
+  // Lightbox Modal State
+  const [activeLightboxImage, setActiveLightboxImage] = useState(null);
 
   // Student Closure & Rating State (Active Session)
   const [showCloseCard, setShowCloseCard] = useState(false);
@@ -150,12 +160,15 @@ export default function StudentWorkspace({
       description: description.trim(),
       codeSnippet: codeSnippet.trim(),
       category,
+      images: requestImages,
     });
 
     if (res && (res === true || res.ok)) {
       setTopic('');
       setDescription('');
       setCodeSnippet('');
+      setRequestImages([]);
+      setRequestImageError(null);
       setCategory('frontend');
       setFieldErrors({});
       setFormError(null);
@@ -172,6 +185,8 @@ export default function StudentWorkspace({
             serverFieldErrors.description = detail;
           } else if (lower.includes('code snippet')) {
             serverFieldErrors.codeSnippet = detail;
+          } else if (lower.includes('image') || lower.includes('file') || lower.includes('attach')) {
+            setRequestImageError(detail);
           }
         });
         if (Object.keys(serverFieldErrors).length > 0) {
@@ -187,12 +202,14 @@ export default function StudentWorkspace({
 
   const handleSendFollowUp = async (e) => {
     e.preventDefault();
-    if (!activeRequest || !followUpText.trim() || !onPostMessage) return;
+    if (!activeRequest || (!followUpText.trim() && followUpImages.length === 0) || !onPostMessage) return;
     setFollowUpSubmitting(true);
     setFollowUpError(null);
     try {
-      await onPostMessage(activeRequest._id, followUpText.trim());
+      await onPostMessage(activeRequest._id, followUpText.trim(), followUpImages);
       setFollowUpText('');
+      setFollowUpImages([]);
+      setFollowUpImageError(null);
     } catch (err) {
       setFollowUpError(err.message || 'Failed to send follow-up message.');
     } finally {
@@ -437,6 +454,19 @@ export default function StudentWorkspace({
                   <h2 className="tracker-title" style={{ fontSize: 17 }}>{activeRequest.topic}</h2>
                   <p className="tracker-desc" style={{ marginTop: 6, fontSize: 13 }}>{activeRequest.description}</p>
 
+                  {activeRequest.attachments && activeRequest.attachments.length > 0 && (
+                    <div style={{ marginTop: 12 }}>
+                      <span className="form-label" style={{ fontSize: 10, display: 'block', marginBottom: 4 }}>
+                        ATTACHED EVIDENCE ({activeRequest.attachments.length})
+                      </span>
+                      <AttachmentThumbnailGrid
+                        attachments={activeRequest.attachments}
+                        requestId={activeRequest._id}
+                        onOpenLightbox={setActiveLightboxImage}
+                      />
+                    </div>
+                  )}
+
                   {activeRequest.codeSnippet && (
                     <div style={{ marginTop: 12 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
@@ -538,9 +568,18 @@ export default function StudentWorkspace({
                                   {formatTime(msg.createdAt)}
                                 </span>
                               </div>
-                              <p style={{ fontSize: 13, color: 'var(--color-warm-white)', lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                                {msg.content}
-                              </p>
+                              {msg.content ? (
+                                <p style={{ fontSize: 13, color: 'var(--color-warm-white)', lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                  {msg.content}
+                                </p>
+                              ) : null}
+                              {msg.attachments && msg.attachments.length > 0 && (
+                                <AttachmentThumbnailGrid
+                                  attachments={msg.attachments}
+                                  requestId={activeRequest._id}
+                                  onOpenLightbox={setActiveLightboxImage}
+                                />
+                              )}
                             </div>
                           );
                         })
@@ -693,6 +732,15 @@ export default function StudentWorkspace({
                                 value={followUpText}
                                 onChange={(e) => setFollowUpText(e.target.value)}
                                 maxLength={2000}
+                                disabled={followUpSubmitting}
+                              />
+                              <ImageAttachmentPicker
+                                selectedFiles={followUpImages}
+                                onFilesChange={setFollowUpImages}
+                                error={followUpImageError}
+                                onError={setFollowUpImageError}
+                                disabled={followUpSubmitting}
+                                maxFiles={3}
                               />
                               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
                                 <span style={{ fontSize: 11, color: 'var(--color-neutral-muted)' }}>
@@ -701,7 +749,7 @@ export default function StudentWorkspace({
                                 <button
                                   type="submit"
                                   className="btn btn-secondary"
-                                  disabled={followUpSubmitting || !followUpText.trim()}
+                                  disabled={followUpSubmitting || (!followUpText.trim() && followUpImages.length === 0)}
                                   style={{ borderColor: 'var(--color-active-blue)', color: 'var(--color-warm-white)' }}
                                 >
                                   {followUpSubmitting ? 'Sending...' : 'Ask a follow-up'}
@@ -841,6 +889,20 @@ export default function StudentWorkspace({
                         {fieldErrors.codeSnippet}
                       </div>
                     )}
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label" style={{ marginBottom: 4, display: 'block' }}>
+                      Visual Evidence &amp; Screenshots (Optional)
+                    </label>
+                    <ImageAttachmentPicker
+                      selectedFiles={requestImages}
+                      onFilesChange={setRequestImages}
+                      error={requestImageError}
+                      onError={setRequestImageError}
+                      disabled={requestSubmitting}
+                      maxFiles={3}
+                    />
                   </div>
 
                   <div>
@@ -985,6 +1047,18 @@ export default function StudentWorkspace({
                           <div>
                             <span className="form-label" style={{ fontSize: 10 }}>Description</span>
                             <p style={{ marginTop: 2, color: 'var(--color-neutral)', lineHeight: 1.5 }}>{req.description}</p>
+                            {req.attachments && req.attachments.length > 0 && (
+                              <div style={{ marginTop: 8 }}>
+                                <span className="form-label" style={{ fontSize: 10, display: 'block', marginBottom: 4 }}>
+                                  Attached Images ({req.attachments.length})
+                                </span>
+                                <AttachmentThumbnailGrid
+                                  attachments={req.attachments}
+                                  requestId={req._id}
+                                  onOpenLightbox={setActiveLightboxImage}
+                                />
+                              </div>
+                            )}
                           </div>
 
                           {req.codeSnippet && (
@@ -1012,7 +1086,16 @@ export default function StudentWorkspace({
                                       <span>{m.senderRole === 'mentor' ? `Mentor (${m.senderName || 'Mentor'})` : 'Student'}</span>
                                       <span>{formatTime(m.createdAt)}</span>
                                     </div>
-                                    <div style={{ color: 'var(--color-warm-white)', whiteSpace: 'pre-wrap' }}>{m.content}</div>
+                                    {m.content ? (
+                                      <div style={{ color: 'var(--color-warm-white)', whiteSpace: 'pre-wrap' }}>{m.content}</div>
+                                    ) : null}
+                                    {m.attachments && m.attachments.length > 0 && (
+                                      <AttachmentThumbnailGrid
+                                        attachments={m.attachments}
+                                        requestId={req._id}
+                                        onOpenLightbox={setActiveLightboxImage}
+                                      />
+                                    )}
                                   </div>
                                 ))}
                               </div>
@@ -1043,6 +1126,14 @@ export default function StudentWorkspace({
           </div>
         </div>
       </div>
+
+      {/* Enlarged Image Lightbox Modal */}
+      {activeLightboxImage && (
+        <ImageLightboxModal
+          attachment={activeLightboxImage}
+          onClose={() => setActiveLightboxImage(null)}
+        />
+      )}
     </div>
   );
 }

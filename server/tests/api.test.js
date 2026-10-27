@@ -35,8 +35,13 @@ describe('LabLine Full-Stack API Test Suite', () => {
   after(async () => {
     // Clean up test collections and disconnect
     if (mongoose.connection.readyState !== 0) {
-      await mongoose.connection.dropDatabase();
-      await mongoose.disconnect();
+      try {
+        await mongoose.connection.dropDatabase();
+      } catch (e) {
+        // Continue to disconnect even if drop fails
+      } finally {
+        await mongoose.disconnect();
+      }
     }
   });
 

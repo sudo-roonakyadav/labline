@@ -97,8 +97,10 @@ describe('Secure Image Attachments & GridFS Storage Test Suite', () => {
     if (mongoose.connection.readyState !== 0) {
       try {
         await mongoose.connection.dropDatabase();
-      } catch (e) {}
-      await mongoose.disconnect();
+      } catch (e) {
+      } finally {
+        await mongoose.disconnect();
+      }
     }
   });
 
