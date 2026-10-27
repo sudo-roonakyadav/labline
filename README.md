@@ -10,8 +10,17 @@ LabLine is an engineering-grade, real-time coordination platform designed for un
 
 ---
 
+## Project Demo
+
+Watch the demonstration of LabLine, including the problem it solves, student and mentor workflows, real-time doubt conversations, image attachments, and session closure.
+
+[Watch the LabLine Demo](https://drive.google.com/file/d/1A7gjoFL6rbqGYLpuXDOHjamx8K-YnNGf/view?usp=sharing)
+
+---
+
 ## Table of Contents
 
+- [Project Demo](#project-demo)
 1. [Problem Statement](#1-problem-statement)
 2. [Target Users](#2-target-users)
 3. [Proposed Solution](#3-proposed-solution)
