@@ -1,11 +1,13 @@
+import SignalVisualizer from './SignalVisualizer.jsx';
+
 export default function LandingWorkflows({ onOpenAuth }) {
   return (
     <div className="landing-workflows-wrapper">
-      {/* SECTION 01: THE REAL PROBLEM */}
+      {/* SECTION 01: THE PROBLEM */}
       <section id="problem" className="landing-section">
         <div className="section-meta-header">
-          <span className="section-index font-mono">02 // PROBLEM SPACE</span>
-          <h2 className="section-headline">WHY PHYSICAL HAND-RAISING FAILS AT SCALE</h2>
+          <span className="section-index font-mono">01 // PROBLEM</span>
+          <h2 className="section-headline">WHY INFORMAL LAB QUEUES FAIL AT SCALE</h2>
           <p className="section-subtext">
             In an 80-student laboratory running complex systems and compiler workflows, informal verbal queues collapse under concurrency.
           </p>
@@ -13,26 +15,26 @@ export default function LandingWorkflows({ onOpenAuth }) {
 
         <div className="problem-card-grid">
           <div className="problem-card">
-            <span className="problem-num font-mono">01 // THE NOISE DILEMMA</span>
+            <span className="problem-num font-mono">01 // UNORGANIZED HELP REQUESTS</span>
             <h3 className="problem-title">Loudness Trumps Fairness</h3>
             <p className="problem-body">
-              Physical hand-raising rewards aggression. Mentors gravitate toward the students who wave frantically or call out, while quiet or hesitant students sit unassisted for an entire lab block.
+              Physical hand-raising and room call-outs reward aggression. Mentors gravitate toward the students who wave frantically, while quiet or hesitant students wait unassisted for an entire lab block without knowing their position.
             </p>
           </div>
 
           <div className="problem-card">
-            <span className="problem-num font-mono">02 // CONTEXT AMNESIA</span>
+            <span className="problem-num font-mono">02 // COMPETING DEMANDS &amp; COLLISIONS</span>
+            <h3 className="problem-title">Uncoordinated Mentor Allocation</h3>
+            <p className="problem-body">
+              Multiple mentors roam the aisles without synchronized queue state. Two mentors frequently walk to the same desk simultaneously, while critical compiler and segmentation-fault blockers across the lab sit completely unattended.
+            </p>
+          </div>
+
+          <div className="problem-card">
+            <span className="problem-num font-mono">03 // CONTEXT LOSS &amp; FOLLOW-UP NEED</span>
             <h3 className="problem-title">Ten Minutes of Context Rebuilding</h3>
             <p className="problem-body">
-              When a mentor finally arrives, the student struggles to explain what failed. Without pre-captured logs, category tagging, or stack traces, precious guidance time is wasted repeating the failure.
-            </p>
-          </div>
-
-          <div className="problem-card">
-            <span className="problem-num font-mono">03 // QUEUE CORRUPTION</span>
-            <h3 className="problem-title">Dual Allocation &amp; Collision</h3>
-            <p className="problem-body">
-              Multiple mentors roam the aisles without coordination, often walking to the same student simultaneously while a critical blocker on the opposite side of the lab remains untouched.
+              When a mentor finally arrives, students struggle to explain what failed from memory. Without code snippets, logs, and ongoing follow-up clarification, students hit secondary errors as soon as the mentor walks away and must restart the queue from zero.
             </p>
           </div>
         </div>
@@ -41,7 +43,7 @@ export default function LandingWorkflows({ onOpenAuth }) {
       {/* SECTION 02: DUAL WORKFLOWS */}
       <section id="workflows" className="landing-section">
         <div className="section-meta-header">
-          <span className="section-index font-mono">03 // WORKFLOW ARCHITECTURE</span>
+          <span className="section-index font-mono">02 // WORKFLOWS</span>
           <h2 className="section-headline">TWO SPECIALIZED WORKSPACES, ONE REAL-TIME QUEUE</h2>
           <p className="section-subtext">
             Designed to match the practical needs of both students asking questions and mentors providing structured help.
@@ -58,7 +60,7 @@ export default function LandingWorkflows({ onOpenAuth }) {
 
             <h3 className="workflow-title">Clear, Context-Rich Doubt Submission</h3>
             <p className="workflow-desc">
-              Students formulate their doubt with category classification (DSA, Frontend, Backend, Database, Env) and optional code snippets, ensuring the mentor understands the problem before replying.
+              Students formulate their doubt with category classification (DSA, Frontend, Backend, Database, Environment) and formatted code snippets, ensuring the mentor understands the problem before replying.
             </p>
 
             <ul className="workflow-feature-list font-mono">
@@ -135,13 +137,25 @@ export default function LandingWorkflows({ onOpenAuth }) {
         </div>
       </section>
 
-      {/* SECTION 03: SYSTEM SPECIFICATIONS & INTEGRITY */}
+      {/* SECTION 03: REQUEST LIFECYCLE */}
+      <section id="lifecycle" className="landing-section">
+        <div className="section-meta-header">
+          <span className="section-index font-mono">03 // LIFECYCLE</span>
+          <h2 className="section-headline">HOW A DOUBT MOVES FROM SUBMISSION TO CLOSURE</h2>
+          <p className="section-subtext">
+            Every help request follows an explicit five-stage sequence: Submission &rarr; FIFO queue &rarr; Mentor acceptance &rarr; Ongoing conversation &rarr; Student closure and rating.
+          </p>
+        </div>
+        <SignalVisualizer />
+      </section>
+
+      {/* SECTION 04: SYSTEM SPECIFICATIONS & INTEGRITY */}
       <section id="specs" className="landing-section">
         <div className="section-meta-header">
-          <span className="section-index font-mono">04 // SYSTEM SPECIFICATIONS</span>
+          <span className="section-index font-mono">04 // SPECS</span>
           <h2 className="section-headline">BUILT FOR RELIABILITY UNDER LAB CONCURRENCY</h2>
           <p className="section-subtext">
-            Zero mock data. Zero invented queue stats. Production-grade full-stack architecture running in Singapore.
+            Zero mock data. Zero invented queue stats. Production-grade full-stack architecture running in Singapore with verified persistence, secure session cookies, real-time WebSockets, and atomic concurrency control.
           </p>
         </div>
 

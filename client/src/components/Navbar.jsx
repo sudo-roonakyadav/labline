@@ -19,9 +19,9 @@ export default function Navbar({
         {/* Center Navigation Links (visible when on public landing) */}
         {activeView === 'landing' && (
           <nav className="desktop-nav" aria-label="Landing navigation">
-            <a href="#lifecycle" className="nav-anchor font-mono">01 // LIFECYCLE</a>
+            <a href="#problem" className="nav-anchor font-mono">01 // PROBLEM</a>
             <a href="#workflows" className="nav-anchor font-mono">02 // WORKFLOWS</a>
-            <a href="#problem" className="nav-anchor font-mono">03 // PROBLEM</a>
+            <a href="#lifecycle" className="nav-anchor font-mono">03 // LIFECYCLE</a>
             <a href="#specs" className="nav-anchor font-mono">04 // SPECS</a>
           </nav>
         )}

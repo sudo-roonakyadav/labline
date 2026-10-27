@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { io } from 'socket.io-client';
 import Navbar from './components/Navbar.jsx';
 import LandingHero from './components/LandingHero.jsx';
-import SignalVisualizer from './components/SignalVisualizer.jsx';
 import LandingWorkflows from './components/LandingWorkflows.jsx';
 import StudentWorkspace from './components/StudentWorkspace.jsx';
 import MentorWorkspace from './components/MentorWorkspace.jsx';
@@ -77,6 +76,19 @@ export default function App() {
       }
     };
   }, []);
+
+  // Handle direct hash navigation on initial landing page load and refreshes
+  useEffect(() => {
+    if (activeView === 'landing' && window.location.hash) {
+      const targetId = window.location.hash.replace('#', '');
+      const targetEl = document.getElementById(targetId);
+      if (targetEl) {
+        setTimeout(() => {
+          targetEl.scrollIntoView({ behavior: 'smooth' });
+        }, 100);
+      }
+    }
+  }, [activeView]);
 
   // -------------------------------------------------------------------------
   // API FETCHERS
@@ -525,19 +537,6 @@ export default function App() {
               onOpenAuth={handleOpenAuth}
               onEnterWorkspace={() => setActiveView('workspace')}
             />
-
-            <div id="lifecycle" className="landing-workflows-wrapper">
-              <section className="landing-section">
-                <div className="section-meta-header">
-                  <span className="section-index font-mono">01 // LIFECYCLE FLOW</span>
-                  <h2 className="section-headline">FROM DOUBT SUBMISSION TO RESOLUTION</h2>
-                  <p className="section-subtext">
-                    Trace a student blocker through the five structured stages of laboratory assistance and conversation.
-                  </p>
-                </div>
-                <SignalVisualizer />
-              </section>
-            </div>
 
             <LandingWorkflows onOpenAuth={handleOpenAuth} />
           </main>

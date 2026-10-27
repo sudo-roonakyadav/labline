@@ -41,7 +41,7 @@ export default function LandingHero({ currentUser, onOpenAuth, onEnterWorkspace 
                   type="button"
                   className="btn-outline-large"
                   onClick={() => {
-                    const el = document.getElementById('lifecycle');
+                    const el = document.getElementById('problem');
                     if (el) el.scrollIntoView({ behavior: 'smooth' });
                   }}
                 >

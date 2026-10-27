@@ -13,9 +13,10 @@ export default function Footer() {
           </div>
 
           <nav className="footer-nav" aria-label="Footer navigation">
-            <a href="#lifecycle" className="footer-nav-link">Lifecycle</a>
             <a href="#problem" className="footer-nav-link">Problem</a>
-            <a href="#workflows" className="footer-nav-link">Workspaces</a>
+            <a href="#workflows" className="footer-nav-link">Workflows</a>
+            <a href="#lifecycle" className="footer-nav-link">Lifecycle</a>
+            <a href="#specs" className="footer-nav-link">Specs</a>
           </nav>
         </div>
 
