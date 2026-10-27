@@ -1,5 +1,42 @@
 import mongoose from 'mongoose';
 
+const attachmentSchema = new mongoose.Schema(
+  {
+    fileId: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: [true, 'GridFS file ID is required'],
+    },
+    filename: {
+      type: String,
+      required: [true, 'Stored filename is required'],
+      trim: true,
+    },
+    originalName: {
+      type: String,
+      required: [true, 'Original filename is required'],
+      trim: true,
+    },
+    mimeType: {
+      type: String,
+      required: [true, 'MIME type is required'],
+      enum: {
+        values: ['image/jpeg', 'image/png', 'image/webp'],
+        message: '{VALUE} is not a supported image format',
+      },
+    },
+    size: {
+      type: Number,
+      required: [true, 'File size is required'],
+      max: [5 * 1024 * 1024, 'Attachment cannot exceed 5 MB'],
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+  { _id: true }
+);
+
 const messageSchema = new mongoose.Schema(
   {
     sender: {
@@ -22,10 +59,17 @@ const messageSchema = new mongoose.Schema(
     },
     content: {
       type: String,
-      required: [true, 'Message content is required'],
       trim: true,
-      minlength: [1, 'Message cannot be empty'],
+      default: '',
       maxlength: [2000, 'Message cannot exceed 2000 characters'],
+    },
+    attachments: {
+      type: [attachmentSchema],
+      default: [],
+      validate: [
+        (val) => val.length <= 3,
+        'Cannot attach more than 3 images to an individual message',
+      ],
     },
     createdAt: {
       type: Date,
@@ -34,6 +78,15 @@ const messageSchema = new mongoose.Schema(
   },
   { _id: true }
 );
+
+messageSchema.pre('validate', function (next) {
+  const hasContent = this.content && this.content.trim().length > 0;
+  const hasAttachments = Array.isArray(this.attachments) && this.attachments.length > 0;
+  if (!hasContent && !hasAttachments) {
+    this.invalidate('content', 'Message content or at least one image attachment is required.');
+  }
+  next();
+});
 
 const helpRequestSchema = new mongoose.Schema(
   {
@@ -62,6 +115,14 @@ const helpRequestSchema = new mongoose.Schema(
       trim: true,
       maxlength: [3000, 'Code snippet cannot exceed 3000 characters'],
       default: '',
+    },
+    attachments: {
+      type: [attachmentSchema],
+      default: [],
+      validate: [
+        (val) => val.length <= 3,
+        'Cannot attach more than 3 images to a help request',
+      ],
     },
     category: {
       type: String,

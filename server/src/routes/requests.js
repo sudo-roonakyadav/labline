@@ -2,8 +2,15 @@ import { Router } from 'express';
 import mongoose from 'mongoose';
 import { HelpRequest } from '../models/HelpRequest.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
+import { uploadImages } from '../middleware/upload.js';
 import { emitQueueChange, emitRequestMessage } from '../socket/index.js';
 import { calculateQueueIntelligence } from '../utils/queueIntelligence.js';
+import {
+  uploadImageToGridFS,
+  deleteImageFromGridFS,
+  getGridFSFileInfo,
+  openDownloadStream,
+} from '../utils/imageStorage.js';
 
 export const requestsRouter = Router();
 
@@ -20,7 +27,8 @@ function isValidObjectId(id) {
 // ---------------------------------------------------------------------------
 
 // POST /api/requests - Student creates a new help request
-requestsRouter.post('/', requireAuth, requireRole('student'), async (req, res, next) => {
+requestsRouter.post('/', requireAuth, requireRole('student'), uploadImages('images', 3), async (req, res, next) => {
+  const uploadedAttachments = [];
   try {
     const { topic, description, codeSnippet, category } = req.body;
     const errors = [];
@@ -56,6 +64,16 @@ requestsRouter.post('/', requireAuth, requireRole('student'), async (req, res, n
       });
     }
 
+    // Upload verified image files to GridFS before persisting the request
+    if (Array.isArray(req.files) && req.files.length > 0) {
+      for (const file of req.files) {
+        const attachment = await uploadImageToGridFS(file, {
+          uploadedBy: req.user._id,
+        });
+        uploadedAttachments.push(attachment);
+      }
+    }
+
     const newRequest = await HelpRequest.create({
       student: req.user._id,
       topic: topic.trim(),
@@ -63,6 +81,7 @@ requestsRouter.post('/', requireAuth, requireRole('student'), async (req, res, n
       codeSnippet: (codeSnippet || '').trim(),
       category: resolvedCategory,
       status: 'waiting',
+      attachments: uploadedAttachments,
     });
 
     // Calculate queue position for the newly created request
@@ -86,6 +105,12 @@ requestsRouter.post('/', requireAuth, requireRole('student'), async (req, res, n
       },
     });
   } catch (err) {
+    // Atomic rollback: clean up GridFS files if document creation fails
+    for (const att of uploadedAttachments) {
+      if (att && att.fileId) {
+        await deleteImageFromGridFS(att.fileId).catch(() => {});
+      }
+    }
     next(err);
   }
 });
@@ -381,7 +406,8 @@ requestsRouter.get('/:id', requireAuth, async (req, res, next) => {
 });
 
 // POST /api/requests/:id/messages - Post a mentor reply or student follow-up message
-requestsRouter.post('/:id/messages', requireAuth, async (req, res, next) => {
+requestsRouter.post('/:id/messages', requireAuth, uploadImages('images', 3), async (req, res, next) => {
+  const uploadedAttachments = [];
   try {
     const { id } = req.params;
     const { content } = req.body;
@@ -442,26 +468,40 @@ requestsRouter.post('/:id/messages', requireAuth, async (req, res, next) => {
       });
     }
 
-    // Content validation
-    if (!content || typeof content !== 'string' || content.trim().length === 0) {
+    // Content & attachment validation
+    const trimmedContent = typeof content === 'string' ? content.trim() : '';
+    const hasFiles = Array.isArray(req.files) && req.files.length > 0;
+
+    if (!trimmedContent && !hasFiles) {
       return res.status(422).json({
         error: 'Unprocessable Entity',
-        message: 'Message content is required and cannot be empty.',
+        message: 'Message content or at least one image attachment is required.',
       });
     }
 
-    if (content.length > 2000) {
+    if (content && typeof content === 'string' && content.length > 2000) {
       return res.status(422).json({
         error: 'Unprocessable Entity',
         message: 'Message cannot exceed 2000 characters.',
       });
     }
 
+    if (hasFiles) {
+      for (const file of req.files) {
+        const attachment = await uploadImageToGridFS(file, {
+          uploadedBy: req.user._id,
+          requestId: request._id,
+        });
+        uploadedAttachments.push(attachment);
+      }
+    }
+
     const messageEntry = {
       sender: req.user._id,
       senderRole: req.user.role,
       senderName: req.user.name,
-      content: content.trim(),
+      content: trimmedContent,
+      attachments: uploadedAttachments,
       createdAt: new Date(),
     };
 
@@ -485,6 +525,101 @@ requestsRouter.post('/:id/messages', requireAuth, async (req, res, next) => {
       request,
       newMessage: createdMsg,
     });
+  } catch (err) {
+    // Atomic rollback: clean up GridFS files if message saving fails
+    for (const att of uploadedAttachments) {
+      if (att && att.fileId) {
+        await deleteImageFromGridFS(att.fileId).catch(() => {});
+      }
+    }
+    next(err);
+  }
+});
+
+// GET /api/requests/:id/attachments/:attachmentId - Secure image attachment retrieval
+requestsRouter.get('/:id/attachments/:attachmentId', requireAuth, async (req, res, next) => {
+  try {
+    const { id, attachmentId } = req.params;
+
+    if (!isValidObjectId(id) || !isValidObjectId(attachmentId)) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Invalid request or attachment ID format.',
+      });
+    }
+
+    const request = await HelpRequest.findById(id);
+
+    if (!request) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Help request not found.',
+      });
+    }
+
+    // Authorization: Students may only view attachments from their own help requests.
+    // Mentors may view attachments for requests in the system.
+    if (req.user.role === 'student' && request.student.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'You can only view attachments from your own help requests.',
+      });
+    }
+
+    // Find attachment in either request.attachments or in any message's attachments
+    let foundAttachment = null;
+    if (Array.isArray(request.attachments)) {
+      foundAttachment = request.attachments.id(attachmentId);
+    }
+
+    if (!foundAttachment && Array.isArray(request.messages)) {
+      for (const msg of request.messages) {
+        if (Array.isArray(msg.attachments)) {
+          const match = msg.attachments.id(attachmentId);
+          if (match) {
+            foundAttachment = match;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!foundAttachment) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Attachment not found on this help request.',
+      });
+    }
+
+    const fileInfo = await getGridFSFileInfo(foundAttachment.fileId);
+    if (!fileInfo) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Attachment file not found in storage.',
+      });
+    }
+
+    res.setHeader('Content-Type', foundAttachment.mimeType);
+    res.setHeader('Content-Length', fileInfo.length);
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${encodeURIComponent(foundAttachment.originalName)}"`
+    );
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+
+    const downloadStream = openDownloadStream(foundAttachment.fileId);
+    downloadStream.on('error', (err) => {
+      console.error('[GridFS Download Error]', err);
+      if (!res.headersSent) {
+        res.status(500).json({
+          error: 'Internal Server Error',
+          message: 'Failed to read attachment stream.',
+        });
+      }
+    });
+
+    downloadStream.pipe(res);
   } catch (err) {
     next(err);
   }
