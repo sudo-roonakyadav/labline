@@ -1450,5 +1450,98 @@ describe('LabLine Full-Stack API Test Suite', () => {
         .send({ content: 'a'.repeat(2001) });
       assert.equal(overlongRes.status, 422);
     });
+
+    test('GET /api/requests/:id authorization and validation edge cases', async () => {
+      // Create student 2
+      const s2Res = await request(app).post('/api/auth/register').send({
+        name: 'Unrelated Student',
+        email: 'unrelated.student@college.edu',
+        password: 'Password123!',
+        accountType: 'student',
+      });
+      assert.equal(s2Res.status, 201);
+      const student2Cookie = s2Res.headers['set-cookie'][0];
+
+      // Student 1 creates request
+      const createRes = await request(app)
+        .post('/api/requests')
+        .set('Cookie', studentCookie)
+        .send({
+          topic: 'Dijkstra priority queue comparator',
+          description: 'Custom comparator in std::priority_queue is inversed.',
+          category: 'dsa',
+        });
+      assert.equal(createRes.status, 201);
+      const reqId = createRes.body.request._id;
+
+      // 1. Unauthenticated request rejected (401)
+      const unauthRes = await request(app).get(`/api/requests/${reqId}`);
+      assert.equal(unauthRes.status, 401);
+
+      // 2. Malformed ObjectId returns 404 with JSON error
+      const malformedRes = await request(app)
+        .get('/api/requests/not-a-valid-id')
+        .set('Cookie', studentCookie);
+      assert.equal(malformedRes.status, 404);
+      assert.equal(malformedRes.body.error, 'Not Found');
+
+      // 3. Non-existent valid ObjectId returns 404
+      const nonExistentId = new mongoose.Types.ObjectId();
+      const notFoundRes = await request(app)
+        .get(`/api/requests/${nonExistentId}`)
+        .set('Cookie', studentCookie);
+      assert.equal(notFoundRes.status, 404);
+      assert.equal(notFoundRes.body.error, 'Not Found');
+
+      // 4. Student 1 (owner) can access (200 OK)
+      const ownerRes = await request(app)
+        .get(`/api/requests/${reqId}`)
+        .set('Cookie', studentCookie);
+      assert.equal(ownerRes.status, 200);
+      assert.equal(ownerRes.body.request._id, reqId);
+      assert.equal(ownerRes.body.request.topic, 'Dijkstra priority queue comparator');
+
+      // 5. Student 2 (unrelated) is forbidden from viewing (403 Forbidden)
+      const forbiddenRes = await request(app)
+        .get(`/api/requests/${reqId}`)
+        .set('Cookie', student2Cookie);
+      assert.equal(forbiddenRes.status, 403);
+      assert.equal(forbiddenRes.body.error, 'Forbidden');
+      assert.equal(forbiddenRes.body.message, 'You can only view your own help requests.');
+
+      // 6. Mentor can access any request for queue and triage operations (200 OK)
+      const mentorViewRes = await request(app)
+        .get(`/api/requests/${reqId}`)
+        .set('Cookie', mentorCookie);
+      assert.equal(mentorViewRes.status, 200);
+      assert.equal(mentorViewRes.body.request._id, reqId);
+    });
+
+    test('search and filtering on GET /api/requests/mine', async () => {
+      // Create another request for student 1 with distinct category
+      await request(app)
+        .post('/api/requests')
+        .set('Cookie', studentCookie)
+        .send({
+          topic: 'PostgreSQL connection pool exhaustion',
+          description: 'Client leaks idle connections under high load.',
+          category: 'database',
+        });
+
+      // Filter by category=database
+      const dbRes = await request(app)
+        .get('/api/requests/mine?category=database')
+        .set('Cookie', studentCookie);
+      assert.equal(dbRes.status, 200);
+      assert(dbRes.body.requests.every(r => r.category === 'database'));
+
+      // Filter by search term
+      const searchRes = await request(app)
+        .get('/api/requests/mine?search=exhaustion')
+        .set('Cookie', studentCookie);
+      assert.equal(searchRes.status, 200);
+      assert(searchRes.body.requests.length >= 1);
+      assert(searchRes.body.requests.some(r => r.topic.includes('exhaustion') || r.description.includes('exhaustion')));
+    });
   });
 });
