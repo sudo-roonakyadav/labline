@@ -1449,7 +1449,7 @@ body {
   margin-top: auto;
   background-color: var(--color-ink);
   border-top: 1px solid var(--color-border);
-  padding: 48px 0 32px;
+  padding: 36px 0 24px;
 }
 
 .footer-inner {
@@ -1460,25 +1460,25 @@ body {
 
 .footer-top-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 32px;
-  margin-bottom: 40px;
+  gap: 24px;
+  margin-bottom: 24px;
 }
 
 .footer-brand-block {
-  max-width: 380px;
+  max-width: 440px;
 }
 
 .footer-brand-mark {
   font-family: var(--font-display);
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 800;
   letter-spacing: 0.1em;
   color: var(--color-warm-white);
   display: block;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .footer-brand-desc {
@@ -1487,47 +1487,24 @@ body {
   line-height: 1.5;
 }
 
-.footer-columns-group {
+.footer-nav {
   display: flex;
-  gap: 48px;
+  align-items: center;
+  gap: 24px;
   flex-wrap: wrap;
 }
 
-.footer-col {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.footer-nav-link {
+  font-family: var(--font-mono);
   font-size: 12px;
-}
-
-.footer-col-title {
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  color: var(--color-signal);
-  margin-bottom: 4px;
-}
-
-.footer-link,
-.footer-btn-link {
+  letter-spacing: 0.05em;
   color: var(--color-neutral);
   text-decoration: none;
-  background: transparent;
-  border: none;
-  text-align: left;
-  cursor: pointer;
-  padding: 0;
-  font-family: inherit;
-  font-size: inherit;
   transition: color 0.15s ease;
 }
 
-.footer-link:hover,
-.footer-btn-link:hover {
-  color: var(--color-warm-white);
-}
-
-.footer-meta-item {
-  color: var(--color-neutral-muted);
+.footer-nav-link:hover {
+  color: var(--color-signal);
 }
 
 .footer-bottom-bar {
@@ -1536,21 +1513,14 @@ body {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 12px;
-  padding-top: 24px;
+  padding-top: 20px;
   border-top: 1px solid var(--color-border-subtle);
   font-size: 11px;
   color: var(--color-neutral-muted);
 }
 
-.footer-bottom-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.footer-sep {
-  color: var(--color-border);
+.footer-copyright {
+  letter-spacing: 0.04em;
 }
 
 /* ==========================================================================
@@ -1589,6 +1559,14 @@ body {
   .footer-inner {
     padding: 0 16px;
   }
+  .footer-top-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+  .footer-nav {
+    gap: 16px;
+  }
   .brand-sub {
     display: none;
   }
@@ -1600,9 +1578,6 @@ body {
   .btn-outline-large {
     width: 100%;
     text-align: center;
-  }
-  .footer-columns-group {
-    gap: 28px;
   }
 }
 
