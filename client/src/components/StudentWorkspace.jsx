@@ -45,6 +45,8 @@ export default function StudentWorkspace({
   const [description, setDescription] = useState('');
   const [codeSnippet, setCodeSnippet] = useState('');
   const [category, setCategory] = useState('frontend');
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [formError, setFormError] = useState(null);
 
   // Conversation Follow-Up State
   const [followUpText, setFollowUpText] = useState('');
@@ -104,20 +106,82 @@ export default function StudentWorkspace({
     });
   }, [pastRequests, historyCategory, historySearch]);
 
+  const validateHelpRequest = () => {
+    const errors = {};
+    const trimmedTopic = topic.trim();
+    const trimmedDesc = description.trim();
+
+    if (!trimmedTopic) {
+      errors.topic = 'Topic is required (minimum 2 characters).';
+    } else if (trimmedTopic.length < 2) {
+      errors.topic = `Topic must be at least 2 characters (currently ${trimmedTopic.length} character).`;
+    } else if (trimmedTopic.length > 100) {
+      errors.topic = `Topic cannot exceed 100 characters (currently ${trimmedTopic.length}).`;
+    }
+
+    if (!trimmedDesc) {
+      errors.description = 'Description must be at least 5 characters (minimum 5 characters).';
+    } else if (trimmedDesc.length < 5) {
+      errors.description = `Description must be at least 5 characters (minimum 5 characters, currently ${trimmedDesc.length} character${trimmedDesc.length === 1 ? '' : 's'}).`;
+    } else if (trimmedDesc.length > 1000) {
+      errors.description = `Description cannot exceed 1000 characters (currently ${trimmedDesc.length}).`;
+    }
+
+    if (codeSnippet && codeSnippet.length > 3000) {
+      errors.codeSnippet = `Code snippet cannot exceed 3000 characters (currently ${codeSnippet.length}).`;
+    }
+
+    return errors;
+  };
+
   const handleSubmitNewRequest = async (e) => {
     e.preventDefault();
-    if (!topic.trim() || !description.trim()) return;
-    const ok = await onCreateRequest({
+    setFormError(null);
+
+    const clientErrors = validateHelpRequest();
+    if (Object.keys(clientErrors).length > 0) {
+      setFieldErrors(clientErrors);
+      return;
+    }
+    setFieldErrors({});
+
+    const res = await onCreateRequest({
       topic: topic.trim(),
       description: description.trim(),
       codeSnippet: codeSnippet.trim(),
       category,
     });
-    if (ok) {
+
+    if (res && (res === true || res.ok)) {
       setTopic('');
       setDescription('');
       setCodeSnippet('');
       setCategory('frontend');
+      setFieldErrors({});
+      setFormError(null);
+    } else {
+      // Map server-side validation details to inline field errors as well
+      const serverDetails = (res && res.details) || [];
+      if (Array.isArray(serverDetails) && serverDetails.length > 0) {
+        const serverFieldErrors = {};
+        serverDetails.forEach((detail) => {
+          const lower = detail.toLowerCase();
+          if (lower.includes('topic')) {
+            serverFieldErrors.topic = detail;
+          } else if (lower.includes('description')) {
+            serverFieldErrors.description = detail;
+          } else if (lower.includes('code snippet')) {
+            serverFieldErrors.codeSnippet = detail;
+          }
+        });
+        if (Object.keys(serverFieldErrors).length > 0) {
+          setFieldErrors((prev) => ({ ...prev, ...serverFieldErrors }));
+        }
+      }
+      if (res && (res.message || res.error)) {
+        setFormError(res.message || res.error);
+      }
+      // Note: topic, description, codeSnippet, and category remain preserved!
     }
   };
 
@@ -663,7 +727,13 @@ export default function StudentWorkspace({
               </div>
 
               <div className="section-card-body">
-                <form onSubmit={handleSubmitNewRequest} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                <form noValidate onSubmit={handleSubmitNewRequest} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                  {formError && (
+                    <div className="alert-banner error" style={{ padding: '10px 14px' }}>
+                      {formError}
+                    </div>
+                  )}
+
                   {/* Category Selection */}
                   <div className="form-group">
                     <label className="form-label">Category</label>
@@ -689,14 +759,27 @@ export default function StudentWorkspace({
                     <input
                       id="topic-input"
                       type="text"
-                      className="form-input"
+                      className={`form-input ${fieldErrors.topic ? 'has-error' : ''}`}
                       placeholder="e.g. Segmentation fault when inserting into binary search tree"
                       value={topic}
-                      onChange={(e) => setTopic(e.target.value)}
+                      onChange={(e) => {
+                        setTopic(e.target.value);
+                        if (fieldErrors.topic) {
+                          setFieldErrors((prev) => ({ ...prev, topic: null }));
+                        }
+                      }}
                       maxLength={100}
-                      required
+                      aria-invalid={!!fieldErrors.topic}
+                      aria-describedby={fieldErrors.topic ? 'topic-error' : undefined}
                     />
-                    <span className="form-hint">{topic.length} / 100 characters</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span className="form-hint">{topic.length} / 100 characters (min 2)</span>
+                    </div>
+                    {fieldErrors.topic && (
+                      <div className="form-field-error font-mono" id="topic-error" role="alert">
+                        {fieldErrors.topic}
+                      </div>
+                    )}
                   </div>
 
                   {/* Problem Description */}
@@ -706,14 +789,27 @@ export default function StudentWorkspace({
                     </label>
                     <textarea
                       id="description-input"
-                      className="form-textarea"
+                      className={`form-textarea ${fieldErrors.description ? 'has-error' : ''}`}
                       placeholder="Describe what you tried, the observed vs expected behavior, and exact error message..."
                       value={description}
-                      onChange={(e) => setDescription(e.target.value)}
+                      onChange={(e) => {
+                        setDescription(e.target.value);
+                        if (fieldErrors.description) {
+                          setFieldErrors((prev) => ({ ...prev, description: null }));
+                        }
+                      }}
                       maxLength={1000}
-                      required
+                      aria-invalid={!!fieldErrors.description}
+                      aria-describedby={fieldErrors.description ? 'description-error' : undefined}
                     />
-                    <span className="form-hint">{description.length} / 1000 characters</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span className="form-hint">{description.length} / 1000 characters (min 5)</span>
+                    </div>
+                    {fieldErrors.description && (
+                      <div className="form-field-error font-mono" id="description-error" role="alert">
+                        {fieldErrors.description}
+                      </div>
+                    )}
                   </div>
 
                   {/* Code Snippet */}
@@ -723,14 +819,28 @@ export default function StudentWorkspace({
                     </label>
                     <textarea
                       id="code-snippet-input"
-                      className="form-textarea font-mono"
+                      className={`form-textarea font-mono ${fieldErrors.codeSnippet ? 'has-error' : ''}`}
                       style={{ minHeight: 110 }}
                       placeholder="// Paste minimal reproducible code or terminal trace..."
                       value={codeSnippet}
-                      onChange={(e) => setCodeSnippet(e.target.value)}
+                      onChange={(e) => {
+                        setCodeSnippet(e.target.value);
+                        if (fieldErrors.codeSnippet) {
+                          setFieldErrors((prev) => ({ ...prev, codeSnippet: null }));
+                        }
+                      }}
                       maxLength={3000}
+                      aria-invalid={!!fieldErrors.codeSnippet}
+                      aria-describedby={fieldErrors.codeSnippet ? 'code-snippet-error' : undefined}
                     />
-                    <span className="form-hint">{codeSnippet.length} / 3000 characters</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span className="form-hint">{codeSnippet.length} / 3000 characters</span>
+                    </div>
+                    {fieldErrors.codeSnippet && (
+                      <div className="form-field-error font-mono" id="code-snippet-error" role="alert">
+                        {fieldErrors.codeSnippet}
+                      </div>
+                    )}
                   </div>
 
                   <div>

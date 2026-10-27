@@ -2020,6 +2020,26 @@ body {
   color: var(--color-neutral-muted);
 }
 
+.form-input.has-error,
+.form-textarea.has-error {
+  border-color: var(--color-red) !important;
+  background-color: var(--color-red-bg);
+}
+
+.form-input.has-error:focus,
+.form-textarea.has-error:focus {
+  border-color: var(--color-red) !important;
+  box-shadow: 0 0 0 1px var(--color-red);
+}
+
+.form-field-error {
+  font-size: 11px;
+  color: var(--color-red);
+  letter-spacing: 0.02em;
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
 /* Category Filter Selector */
 .category-selector-row {
   display: flex;

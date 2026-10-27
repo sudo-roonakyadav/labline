@@ -342,15 +342,23 @@ export default function App() {
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.message || data.error || 'Failed to submit help request.');
+        const detailsStr = Array.isArray(data.details) && data.details.length > 0
+          ? data.details.join(' ')
+          : null;
+        const errMsg = detailsStr
+          ? `Validation failed: ${detailsStr}`
+          : (data.message || data.error || 'Failed to submit help request.');
+        const err = new Error(errMsg);
+        err.details = data.details || [];
+        throw err;
       }
 
       setRequestSuccess(`Request submitted. Position in queue: #${data.request.queuePosition}`);
       fetchMyRequests();
-      return true;
+      return { ok: true };
     } catch (err) {
       setRequestError(err.message);
-      return false;
+      return { ok: false, message: err.message, details: err.details || [] };
     } finally {
       setRequestSubmitting(false);
     }

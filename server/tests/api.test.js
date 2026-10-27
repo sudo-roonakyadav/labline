@@ -771,6 +771,124 @@ describe('LabLine Full-Stack API Test Suite', () => {
         .send({ status: 'in_progress' });
       assert.equal(closedRes.status, 409);
     });
+
+    test('comprehensive validation for description lengths (0, 4, 5, 1000, 1001), invalid topics, and snippets', async () => {
+      // 1. Description with 0 characters (empty string) -> 422
+      const desc0Res = await request(app)
+        .post('/api/requests')
+        .set('Cookie', studentCookie)
+        .send({ topic: 'Valid Topic', description: '' });
+      assert.equal(desc0Res.status, 422);
+      assert.equal(desc0Res.body.message, 'Validation failed');
+      assert(desc0Res.body.details.includes('Description must be between 5 and 1000 characters.'));
+
+      // 1b. Description with 0 characters (only whitespace) -> 422
+      const descWhitespaceRes = await request(app)
+        .post('/api/requests')
+        .set('Cookie', studentCookie)
+        .send({ topic: 'Valid Topic', description: '    ' });
+      assert.equal(descWhitespaceRes.status, 422);
+      assert(descWhitespaceRes.body.details.includes('Description must be between 5 and 1000 characters.'));
+
+      // 2. Description with 4 characters -> 422
+      const desc4Res = await request(app)
+        .post('/api/requests')
+        .set('Cookie', studentCookie)
+        .send({ topic: 'Valid Topic', description: '1234' });
+      assert.equal(desc4Res.status, 422);
+      assert.equal(desc4Res.body.message, 'Validation failed');
+      assert(desc4Res.body.details.includes('Description must be between 5 and 1000 characters.'));
+
+      // 3. Description with 5 characters (minimum valid boundary) -> 201
+      const desc5Res = await request(app)
+        .post('/api/requests')
+        .set('Cookie', studentCookie)
+        .send({ topic: 'Valid Topic', description: '12345' });
+      assert.equal(desc5Res.status, 201);
+      assert.equal(desc5Res.body.request.description, '12345');
+
+      // 4. Description with 1,000 characters (maximum valid boundary) -> 201
+      const desc1000 = 'D'.repeat(1000);
+      const desc1000Res = await request(app)
+        .post('/api/requests')
+        .set('Cookie', studentCookie)
+        .send({ topic: 'Valid Topic', description: desc1000 });
+      assert.equal(desc1000Res.status, 201);
+      assert.equal(desc1000Res.body.request.description.length, 1000);
+
+      // 5. Oversized description with 1,001 characters -> 422
+      const desc1001 = 'D'.repeat(1001);
+      const desc1001Res = await request(app)
+        .post('/api/requests')
+        .set('Cookie', studentCookie)
+        .send({ topic: 'Valid Topic', description: desc1001 });
+      assert.equal(desc1001Res.status, 422);
+      assert.equal(desc1001Res.body.message, 'Validation failed');
+      assert(desc1001Res.body.details.includes('Description must be between 5 and 1000 characters.'));
+
+      // 6. Invalid topics:
+      // 6a. Topic with 0 characters (empty or whitespace) -> 422
+      const topic0Res = await request(app)
+        .post('/api/requests')
+        .set('Cookie', studentCookie)
+        .send({ topic: '  ', description: 'Valid description here' });
+      assert.equal(topic0Res.status, 422);
+      assert(topic0Res.body.details.includes('Topic must be between 2 and 100 characters.'));
+
+      // 6b. Topic with 1 character (< 2 minimum) -> 422
+      const topic1Res = await request(app)
+        .post('/api/requests')
+        .set('Cookie', studentCookie)
+        .send({ topic: 'T', description: 'Valid description here' });
+      assert.equal(topic1Res.status, 422);
+      assert(topic1Res.body.details.includes('Topic must be between 2 and 100 characters.'));
+
+      // 6c. Topic with 2 characters (lower boundary) -> 201
+      const topic2Res = await request(app)
+        .post('/api/requests')
+        .set('Cookie', studentCookie)
+        .send({ topic: 'AB', description: 'Valid description here' });
+      assert.equal(topic2Res.status, 201);
+      assert.equal(topic2Res.body.request.topic, 'AB');
+
+      // 6d. Topic with 100 characters (upper boundary) -> 201
+      const topic100 = 'T'.repeat(100);
+      const topic100Res = await request(app)
+        .post('/api/requests')
+        .set('Cookie', studentCookie)
+        .send({ topic: topic100, description: 'Valid description here' });
+      assert.equal(topic100Res.status, 201);
+      assert.equal(topic100Res.body.request.topic.length, 100);
+
+      // 6e. Topic with 101 characters (oversized) -> 422
+      const topic101 = 'T'.repeat(101);
+      const topic101Res = await request(app)
+        .post('/api/requests')
+        .set('Cookie', studentCookie)
+        .send({ topic: topic101, description: 'Valid description here' });
+      assert.equal(topic101Res.status, 422);
+      assert(topic101Res.body.details.includes('Topic must be between 2 and 100 characters.'));
+
+      // 6f. Non-string topic -> 422
+      const topicNonStrRes = await request(app)
+        .post('/api/requests')
+        .set('Cookie', studentCookie)
+        .send({ topic: 12345, description: 'Valid description here' });
+      assert.equal(topicNonStrRes.status, 422);
+
+      // 7. Oversized code snippet (3,001 characters) -> 422
+      const snippet3001 = 'C'.repeat(3001);
+      const snippetRes = await request(app)
+        .post('/api/requests')
+        .set('Cookie', studentCookie)
+        .send({
+          topic: 'Valid Topic',
+          description: 'Valid description here',
+          codeSnippet: snippet3001,
+        });
+      assert.equal(snippetRes.status, 422);
+      assert(snippetRes.body.details.includes('Code snippet cannot exceed 3000 characters.'));
+    });
   });
 
   // -------------------------------------------------------------------------
