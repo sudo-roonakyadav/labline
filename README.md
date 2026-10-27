@@ -81,12 +81,13 @@ LabLine establishes a bidirectional, real-time help-desk protocol tailored speci
 ## 4. Key Features
 
 - **Dual-Role Registration:** Distinct onboarding pathways for Students and Teachers. Teacher accounts require a cryptographically verified server-side invitation code (`TEACHER_INVITE_CODE`) to prevent unauthorized role escalation.
-- **Real-Time WebSocket Synchronization:** Instantaneous UI synchronization across all connected clients via Socket.IO events (`queue:update`, `request:message`, `mentor:availability`). No manual page refreshes required.
+- **Real-Time WebSocket Synchronization:** Instantaneous UI synchronization across all connected clients via Socket.IO events (`queue:changed`, `request:message`). No manual page refreshes required.
+- **Secure Evidence & Image Attachments:** Students and mentors can attach up to 3 screenshots or images per doubt submission or conversation message (up to 5 MB each, JPEG, PNG, or WebP). Uploads are verified via binary magic byte signatures and stored natively in MongoDB GridFS with strict role-based access authorization and fullscreen lightbox inspection.
 - **Defensive Concurrency & Atomic Operations:** MongoDB atomic operators prevent race conditions when multiple teaching assistants click "Claim" at the exact same millisecond.
 - **Interactive Code Formatting:** Clean monospace code snippet displays preserving indentation, line wrapping, and syntax distinction.
 - **Multi-Level Input Validation:** Strict character bounds, schema sanitization, and category whitelisting on both client and Express middleware layers.
 - **Mentor Availability Controls:** Mentors can toggle their active/inactive status, allowing the queue intelligence engine to compute realistic wait times based only on active staff.
-- **Session History and Export:** Filterable and searchable historical archives of all completed sessions, including code snippets, conversation logs, and resolution feedback.
+- **Session History & Reflection:** Filterable and searchable historical archives of all completed sessions, including code snippets, conversation logs, image attachments, and student feedback.
 - **Enterprise-Grade Observability:** Three dedicated health and readiness probes (`/api/health`, `/api/health/ready`, `/api/health/live`) reporting database ping, socket connection counts, uptime, and system memory.
 - **Zero-Dependency Aesthetic UI:** Scoped custom CSS architecture (SIGNAL design system) featuring high-contrast typography, warm dark mode, responsive layouts from 375px mobile to 1440px desktop, and zero bloated CSS frameworks.
 
@@ -98,23 +99,26 @@ LabLine establishes a bidirectional, real-time help-desk protocol tailored speci
 - **Framework:** React 18 (Vite SPA)
 - **Styling:** Custom CSS variables, scoped component styles, responsive grid/flex layouts, CSS-driven telemetry visualizers.
 - **Client Networking:** Native `fetch` with credentialed cookie transport and `socket.io-client` for persistent duplex streaming.
+- **Attachments UI:** Custom image picker with file allowance tracking (`X / 3 images`), format/size validation, thumbnail grid, and accessible fullscreen lightbox modal (`Esc` key support).
 - **Performance:** Optimized lifecycle decoupling, ref-based socket listeners preventing re-render loops, and lazy asset loading.
 
 ### Backend Architecture
 - **Runtime:** Node.js (v20+ LTS recommended)
 - **Application Server:** Express.js 4.x
-- **Real-Time Engine:** Socket.IO 4.x with CORS credentials and isolated room emitters.
+- **Real-Time Engine:** Socket.IO 4.x with CORS credentials and broadcast emitters.
+- **Image Processing & Storage:** Multer memory storage with binary magic byte signature verification (`image/jpeg`, `image/png`, `image/webp`) and MongoDB GridFS streaming bucket.
 - **Security:** HTTP-only strict session cookies, `bcryptjs` password hashing (salt rounds: 10), and strict Content-Type enforcement.
-- **Caching:** In-memory TTL cache for high-frequency queue metrics and intelligence computations.
 
 ### Database & Persistence
 - **Database:** MongoDB Atlas (Mongoose ODM)
-- **Schema Design:** Normalized `User` accounts and `HelpRequest` documents with embedded `messages` array and `feedback` object.
+- **Binary Storage:** MongoDB GridFS (`attachments` bucket) for zero-cost, persistent binary storage directly in the MongoDB cluster.
+- **Schema Design:** Normalized `User` accounts and `HelpRequest` documents with embedded `messages` array, `attachments` metadata arrays, and `feedback` object.
 - **Indices:** Compound index on `{ status: 1, createdAt: 1 }` for high-throughput FIFO queue reads.
 
 ### Infrastructure & Deployment
 - **Cloud Provider:** Render (Web Service, Singapore region)
 - **Node Environment:** Production (`NODE_ENV=production`)
+- **Automated Blueprint:** Declarative `render.yaml` specification with automated builds (`npm ci --include=dev && npm run build`) and start command (`npm start`).
 - **Routing:** Express wildcard route serving Vite's compiled `index.html` for client-side SPA routing, while maintaining strict JSON 404 handlers for all API routes.
 
 ---
@@ -130,35 +134,40 @@ LabLine establishes a bidirectional, real-time help-desk protocol tailored speci
 |   +-----------------------+                 +-----------------------+   |
 |   |   Student Workspace   |                 |   Mentor Workspace    |   |
 |   |  - Doubt Submission   |                 |  - Real-time Queue    |   |
-|   |  - Queue Tracker      |                 |  - Atomic Claiming    |   |
-|   |  - Interactive Chat   |                 |  - Reply & Guidance   |   |
+|   |  - Image Attachments  |                 |  - Atomic Claiming    |   |
+|   |  - Queue Tracker      |                 |  - Reply & Guidance   |   |
+|   |  - Interactive Chat   |                 |  - Image Attachments  |   |
 |   |  - Session Close/Rate |                 |  - History & Metrics  |   |
 |   +-----------+-----------+                 +-----------+-----------+   |
 |               |                                         |               |
 +---------------+-----------------------------------------+---------------+
-                | HTTP REST (Cookies)                     | Socket.IO
+                | HTTP REST / Multipart (Cookies)         | Socket.IO
                 v                                         v
 +-------------------------------------------------------------------------+
 |                         EXPRESS APPLICATION SERVER                      |
 |                                                                         |
 |  +--------------------+   +--------------------+   +-----------------+  |
 |  |  Auth & Role Gates |   | Request Controller |   | Socket Gateway  |  |
-|  |  (JWT in Cookie)   |   | (FIFO / Atomic)    |   | (Rooms/Emitters)|  |
+|  |  (JWT in Cookie)   |   | (FIFO / Atomic)    |   | (Broadcasts)    |  |
 |  +---------+----------+   +---------+----------+   +--------+--------+  |
 |            |                        |                       |           |
+|            |              +---------+----------+            |           |
+|            |              | GridFS Image Store |            |           |
+|            |              +---------+----------+            |           |
+|            |                        |                       |           |
 +------------+------------------------+-----------------------+-----------+
-                                      | Mongoose ODM
+                                      | Mongoose ODM / GridFS
                                       v
 +-------------------------------------------------------------------------+
 |                           MONGODB ATLAS                                 |
 |                                                                         |
-|  +--------------------------------+  +--------------------------------+ |
-|  |        Users Collection        |  |     HelpRequests Collection    | |
-|  | - email, passwordHash, role    |  | - student, mentor, topic       | |
-|  | - name, availabilityStatus     |  | - codeSnippet, status, queue   | |
-|  |                                |  | - messages: [ { sender, text }]| |
-|  |                                |  | - feedback: { rating, comment }| |
-|  +--------------------------------+  +--------------------------------+ |
+|  +---------------------+  +---------------------+  +------------------+ |
+|  |  Users Collection   |  | HelpRequests Coll.  |  |  GridFS Buckets  | |
+|  | - name, email, role |  | - topic, status     |  | - attachments.   | |
+|  | - passwordHash      |  | - attachments: []   |  |   files          | |
+|  | - isAvailable       |  | - messages: [...]   |  | - attachments.   | |
+|  |                     |  | - feedback: {...}   |  |   chunks         | |
+|  +---------------------+  +---------------------+  +------------------+ |
 +-------------------------------------------------------------------------+
 ```
 
@@ -287,6 +296,10 @@ LabLine is deployed as an automated web service on Render in the Singapore regio
 - **Live URL:** [https://labline.onrender.com](https://labline.onrender.com)
 - **Hosting Model:** $0 Zero-Budget Stack (Render Free Tier + MongoDB Atlas Shared Tier)
 - **Continuous Deployment:** Synchronized directly with commits to the `main` branch.
+- **Blueprint Configuration:** Fully managed via [`render.yaml`](./render.yaml) (`npm ci --include=dev && npm run build`, `npm start`, readiness probe: `/api/health/ready`).
+
+### Free Tier Operational Notice
+On Render's free tier, web instances automatically spin down following 15 minutes of inactivity. When accessed after a dormant period, the initial request will experience a cold-start delay of approximately 30–50 seconds while the container initializes.
 
 ### Observability and Health Probes
 
@@ -322,11 +335,18 @@ LabLine provides three dedicated health monitoring endpoints conforming to cloud
 3. **`GET /api/health/live` (Liveness Probe)**
    Simple lightweight probe verifying that the Node.js event loop is responsive.
 
+### Administrative Mentor Promotion (CLI Fallback)
+
+While teachers can register directly in the UI using `TEACHER_INVITE_CODE`, administrators can also promote any existing student account to the mentor role via the bundled CLI script:
+```bash
+npm run promote-mentor -- <student-email>
+```
+
 ---
 
 ## 10. REST API Reference
 
-All API requests accept and return `application/json`. Authenticated routes require the `token` HTTP-only cookie established during login or registration.
+All API requests accept and return `application/json` (or `multipart/form-data` when uploading image attachments). Authenticated routes require the `token` HTTP-only cookie established during login or registration.
 
 ### Authentication Endpoints (`/api/auth`)
 
@@ -341,13 +361,14 @@ All API requests accept and return `application/json`. Authenticated routes requ
 
 | Method | Endpoint | Access | Request Body | Description |
 |---|---|---|---|---|
-| `POST` | `/api/requests` | Student | `{ topic, description, codeSnippet?, category }` | Create a new help request in `waiting` state |
+| `POST` | `/api/requests` | Student | JSON or Multipart (`topic`, `description`, `category`, `codeSnippet?`, `images?`) | Create a new help request in `waiting` state (up to 3 images, 5 MB each) |
 | `GET` | `/api/requests/mine` | Student | Query: `?status=&category=&search=` | List current student's requests with queue position |
-| `GET` | `/api/requests/:id` | Participant | None | Fetch single request details and complete message log |
-| `DELETE`| `/api/requests/:id` | Student | None | Cancel an unassigned request (only if `waiting`) |
+| `GET` | `/api/requests/:id` | Participant | None | Fetch single request details, attachments, and complete message log |
+| `POST` | `/api/requests/:id/cancel` | Student | None | Cancel an unassigned request (only if `waiting`) |
+| `GET` | `/api/requests/:id/attachments/:attachmentId` | Participant | None | Securely stream an authorized image binary from GridFS |
 | `POST` | `/api/requests/:id/claim` | Mentor | None | Atomically claim a waiting request |
 | `PATCH`| `/api/requests/:id/status`| Mentor | `{ status, resolutionNotes? }` | Update claimed request to `in_progress` |
-| `POST` | `/api/requests/:id/messages`| Participant | `{ content }` | Post a mentor reply or student follow-up message |
+| `POST` | `/api/requests/:id/messages`| Participant | JSON or Multipart (`content?`, `images?`) | Post a mentor reply or student follow-up message (up to 3 images, 5 MB each) |
 | `POST` | `/api/requests/:id/close` | Student | `{ rating, comment? }` | Mark request resolved and submit 1-5 star rating |
 | `POST` | `/api/requests/:id/feedback`| Student | `{ rating, comment? }` | Submit feedback for an already-resolved request |
 
@@ -383,6 +404,16 @@ All API requests accept and return `application/json`. Authenticated routes requ
   topic: { type: String, required: true, minlength: 2, maxlength: 100 },
   description: { type: String, required: true, minlength: 5, maxlength: 1000 },
   codeSnippet: { type: String, default: '', maxlength: 3000 },
+  attachments: [
+    {
+      fileId: { type: ObjectId, required: true },
+      filename: { type: String, required: true },
+      originalName: { type: String, required: true },
+      mimeType: { type: String, enum: ['image/jpeg', 'image/png', 'image/webp'], required: true },
+      size: { type: Number, required: true, max: 5242880 },
+      createdAt: { type: Date, default: Date.now }
+    }
+  ],
   category: {
     type: String,
     enum: ['dsa', 'frontend', 'backend', 'database', 'environment', 'other'],
@@ -398,7 +429,17 @@ All API requests accept and return `application/json`. Authenticated routes requ
       sender: { type: ObjectId, ref: 'User', required: true },
       senderRole: { type: String, enum: ['student', 'mentor'], required: true },
       senderName: { type: String, required: true },
-      content: { type: String, required: true, maxlength: 2000 },
+      content: { type: String, default: '', maxlength: 2000 },
+      attachments: [
+        {
+          fileId: { type: ObjectId, required: true },
+          filename: { type: String, required: true },
+          originalName: { type: String, required: true },
+          mimeType: { type: String, enum: ['image/jpeg', 'image/png', 'image/webp'], required: true },
+          size: { type: Number, required: true, max: 5242880 },
+          createdAt: { type: Date, default: Date.now }
+        }
+      ],
       createdAt: { type: Date, default: Date.now }
     }
   ],
@@ -428,13 +469,14 @@ npm test
 ```
 
 ### Test Coverage Highlights
-- **51 Automated Test Assertions** executing against an isolated test MongoDB database.
+- **70 Automated Test Assertions across 14 Test Suites** executing against an isolated test MongoDB database.
 - **Diagnostic Probes:** Verifies 200 OK health checks and 503 unavailable responses during simulated database outages.
 - **Role Enforcement & Dual Registration:** Verifies unprivileged students cannot claim requests, teacher accounts require invitation secrets, and client-supplied role tampering is discarded.
 - **Concurrency & Atomic Claims:** Simulates concurrent mentor claims to verify that exactly one mentor succeeds while other attempts receive `409 Conflict`.
 - **Doubt Lifecycle & Turn-Taking:** Tests full multi-turn conversations (`waiting` -> `claimed` -> `awaiting_student` -> `awaiting_mentor` -> `resolved`).
 - **Student Ownership & Ratings:** Guarantees that only the student owner can close tickets and enforces valid integer ratings between 1 and 5.
-- **CLI Utility Tests:** Verifies the administrative mentor promotion script (`bin/promote-mentor.js`).
+- **Secure Image Attachments & GridFS Storage:** Validates MIME detection, file-size limits (5 MB), maximum 3 images per post, multi-chunk GridFS streaming, and participant-only authorization.
+- **CLI Utility Tests:** Verifies the administrative mentor promotion script (`src/cli/promote-mentor.js`).
 
 ---
 

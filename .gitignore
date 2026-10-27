@@ -23,3 +23,6 @@ pnpm-debug.log*
 # OS and editor files
 .DS_Store
 .idea/
+
+# Internal guidelines
+END_TERM_PROJECT_GUIDELINES.md
